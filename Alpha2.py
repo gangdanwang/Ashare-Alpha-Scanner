@@ -91,77 +91,150 @@ def fast_filter(info):
 
 
 # =============================
-# 4️⃣ 第二阶段：均线结构筛选
+# 4️⃣ 第二阶段：分时结构评分
 #
-# Step1 优先级判断（满足任一即可进入 Step2）：
-#   优先级1（最高）：9:40后每根K线收盘价始终在累计分时均价上方
-#   优先级2：9:40后价格围绕分时均价运行（偏离率标准差 <= 阈值）
+# 对每只股票的 9:40 后分钟K线进行多维度打分：
+#   +10  均线位置：全程在 vwap 上方
+#   +8   回踩质量：回踩不破 or ≤3分钟快速收回
+#   +6   趋势斜率：vwap 缓慢上行（非直线拉升）
+#   +6   结构稳定：无单分钟跌幅 > 1%
+#   -5   多次跌破均线（> 3次）
+#   -6   下午才启动（14:00后 vwap 才开始上行）
 #
-# Step2 叠加条件（通过Step1后必须同时满足）：
-#   条件A：现价高于当日分时均价 > min_price_above_intraday_ma
-#   条件B：现价相对MA5乖离率 <= max_bias_to_ma5
+# 基础门槛：MA5 乖离率 <= max_bias_to_ma5，不满足直接排除
+# 返回 None 表示不满足基础门槛或数据异常
 # =============================
-def after_14_filter(code):
+def score_stock(code: str) -> dict | None:
     try:
         cfg = CONFIG["after_14_filter"]
 
         # ── 拉当日分钟K线 ──
         intraday_df = get_price(code, frequency=cfg["intraday_frequency"], count=int(cfg["intraday_count"]))
         if intraday_df is None or intraday_df.empty:
-            return False
+            return None
         intraday_df = intraday_df.sort_index()
 
-        # 只取今日数据
         today = pd.Timestamp.now().normalize()
         df_today = intraday_df[intraday_df.index >= today].copy()
         if df_today.empty:
-            return False
+            return None
 
-        # 累计分时均价（每根K线对应截至该时刻的均价，即 expanding mean）
+        # 累计分时均价（expanding mean = 截至每根K线的均价）
         df_today['vwap'] = df_today['close'].expanding().mean()
 
-        now_price    = df_today['close'].iloc[-1]
-        intraday_ma  = df_today['close'].mean()   # 全天均价（用于 Step2 条件A）
+        # 只取 priority_start_hhmm 之后的数据参与评分
+        start_hm = cfg["priority_start_hhmm"]
+        df = df_today[df_today.index.strftime('%H:%M') >= start_hm].copy()
+        if len(df) < 5:
+            return None
 
-        # ── Step1：优先级判断 ──
-        start_time = cfg["priority_start_hhmm"]
-        df_priority = df_today[df_today.index.strftime('%H:%M') >= start_time]
+        now_price = df['close'].iloc[-1]
+        score = 0
+        detail = {}
 
-        priority_passed = False
-
-        if not df_priority.empty:
-            # 优先级1：9:40后每根K线收盘价始终高于当时的累计均价
-            always_above = (df_priority['close'] > df_priority['vwap']).all()
-            if always_above:
-                priority_passed = True
-            else:
-                # 优先级2：偏离率标准差 <= 阈值（价格围绕均线运行）
-                deviation = (df_priority['close'] - df_priority['vwap']) / df_priority['vwap']
-                if deviation.std() <= float(cfg["max_vwap_deviation_std"]):
-                    priority_passed = True
-
-        if not priority_passed:
-            return False
-
-        # ── Step2 条件A：现价高于分时均价超过阈值 ──
-        if intraday_ma <= 0:
-            return False
-        if (now_price / intraday_ma - 1) <= float(cfg["min_price_above_intraday_ma"]):
-            return False
-
-        # ── Step2 条件B：MA5 乖离率 ──
+        # ── 基础门槛：MA5 乖离率 ──
         daily_df = get_price(code, frequency='1d', count=int(cfg["daily_count"]))
         if daily_df is None or len(daily_df) < int(cfg["ma_window"]):
-            return False
+            return None
         daily_df = daily_df.sort_index()
         ma5 = daily_df['close'].rolling(int(cfg["ma_window"])).mean().iloc[-1]
         if pd.isna(ma5) or ma5 <= 0:
-            return False
+            return None
+        if abs(now_price / ma5 - 1) > float(cfg["max_bias_to_ma5"]):
+            return None
 
-        return abs(now_price / ma5 - 1) <= float(cfg["max_bias_to_ma5"])
+        # ── 加分1：均线位置（全程在 vwap 上方）──
+        always_above = (df['close'] > df['vwap']).all()
+        if always_above:
+            score += cfg["score_always_above_vwap"]
+            detail['均线位置'] = f"+{cfg['score_always_above_vwap']} 全程在均线上方"
+        else:
+            detail['均线位置'] = "0"
+
+        # ── 加分2：回踩质量 ──
+        # 找出所有跌破 vwap 的位置，检查是否在 N 分钟内收回
+        recover_win = int(cfg["pullback_recover_minutes"])
+        closes = df['close'].values
+        vwaps  = df['vwap'].values
+        break_indices = [i for i in range(len(closes)) if closes[i] < vwaps[i]]
+        break_count = len(break_indices)
+
+        if break_count == 0:
+            # 全程未破线，回踩质量满分
+            score += cfg["score_pullback_quality"]
+            detail['回踩质量'] = f"+{cfg['score_pullback_quality']} 未破线"
+        else:
+            # 检查每次破线后是否快速收回
+            all_recover = all(
+                any(closes[j] > vwaps[j] for j in range(i + 1, min(i + 1 + recover_win, len(closes))))
+                for i in break_indices
+            )
+            if all_recover:
+                score += cfg["score_pullback_quality"]
+                detail['回踩质量'] = f"+{cfg['score_pullback_quality']} 快速收回"
+            else:
+                detail['回踩质量'] = "0 未能快速收回"
+
+        # ── 加分3：趋势斜率（vwap 缓慢上行）──
+        vwap_series = df['vwap'].values
+        vwap_slope_up = vwap_series[-1] > vwap_series[0]   # 整体向上
+        max_single_rise = df['close'].pct_change().max()
+        slope_ok = vwap_slope_up and max_single_rise <= float(cfg["slope_max_single_pct"])
+        if slope_ok:
+            score += cfg["score_trend_slope"]
+            detail['趋势斜率'] = f"+{cfg['score_trend_slope']} 缓慢上行"
+        else:
+            detail['趋势斜率'] = "0 直线拉升或下行"
+
+        # ── 加分4：结构稳定性（无单分钟跌幅 > 阈值）──
+        min_pct_change = df['close'].pct_change().min()
+        stable = min_pct_change > -float(cfg["stability_drop_threshold"])
+        if stable:
+            score += cfg["score_stability"]
+            detail['结构稳定'] = f"+{cfg['score_stability']} 无明显跳水"
+        else:
+            detail['结构稳定'] = f"0 存在跳水（最大跌幅{min_pct_change:.1%}）"
+
+        # ── 扣分1：多次跌破均线 ──
+        if break_count > int(cfg["break_vwap_max_times"]):
+            score += cfg["penalty_break_vwap"]   # 负数
+            detail['跌破均线'] = f"{cfg['penalty_break_vwap']} 跌破{break_count}次"
+        else:
+            detail['跌破均线'] = f"0 跌破{break_count}次"
+
+        # ── 扣分2：下午才启动 ──
+        late_hm = cfg["late_start_hhmm"]
+        df_am = df[df.index.strftime('%H:%M') < late_hm]
+        df_pm = df[df.index.strftime('%H:%M') >= late_hm]
+        # 判断：上午 vwap 斜率 <= 0，下午才开始上行
+        late_start = False
+        if len(df_am) >= 2 and len(df_pm) >= 2:
+            am_slope = df_am['vwap'].iloc[-1] - df_am['vwap'].iloc[0]
+            pm_slope = df_pm['vwap'].iloc[-1] - df_pm['vwap'].iloc[0]
+            if am_slope <= 0 and pm_slope > 0:
+                late_start = True
+        if late_start:
+            score += cfg["penalty_late_start"]   # 负数
+            detail['启动时间'] = f"{cfg['penalty_late_start']} 下午才启动"
+        else:
+            detail['启动时间'] = "0 上午已启动"
+
+        return {
+            'code':   code,
+            'score':  score,
+            'detail': detail,
+            'now_price': now_price,
+            'ma5':    round(ma5, 3),
+        }
 
     except:
-        return False
+        return None
+
+
+# 保留函数名兼容主流程调用（全市场扫描时用）
+def after_14_filter(code: str) -> bool:
+    result = score_stock(code)
+    return result is not None and result['score'] > 0
 
 
 # =============================
@@ -175,17 +248,20 @@ def pick_stocks_fast(test_code: str | None = None):
             print(f"实时数据获取失败：{test_code}")
             return pd.DataFrame([])
 
-        print("是否通过第一阶段：", fast_filter(test[0]))
-        print("是否通过第二阶段：", after_14_filter(test_code))
-
         passed_1 = fast_filter(test[0])
-        passed_2 = after_14_filter(test_code)
+        print(f"第一阶段: {'✓' if passed_1 else '✗'}")
 
-        if passed_1 and passed_2:
+        result = score_stock(test_code)
+        if result:
+            print(f"第二阶段评分: {result['score']}")
+            for dim, val in result['detail'].items():
+                print(f"  {dim}: {val}")
             row = dict(test[0])
             row['code'] = test_code
+            row['score'] = result['score']
             return pd.DataFrame([row])
-
+        else:
+            print("第二阶段: 不满足基础门槛")
         return pd.DataFrame([])
 
     # 还原：全市场批量筛选
@@ -211,35 +287,41 @@ def pick_stocks_fast(test_code: str | None = None):
     filtered = [x for x in all_data if fast_filter(x)]
     print(f"粗筛后剩余: {len(filtered)}")
 
-    # ===== 第二阶段（K线筛选）=====
-    final = []
+    # ===== 第二阶段（评分筛选）=====
+    top_n = int(CONFIG["after_14_filter"]["top_n"])
+    scored = []
     total_stage2 = len(filtered)
     stage2_start = time.time()
 
     for idx, stock in enumerate(filtered, start=1):
         code = stock.get('qcode') or stock.get('code')
+        result = score_stock(code)
+        if result and result['score'] > 0:
+            stock['score'] = result['score']
+            stock['detail'] = str(result['detail'])
+            scored.append(stock)
 
-        if after_14_filter(code):
-            final.append(stock)
-
-        # 友好进度展示：已处理/总数/通过数/耗时/预计剩余
         elapsed = time.time() - stage2_start
         avg = elapsed / idx if idx else 0.0
         remain = max(total_stage2 - idx, 0) * avg
         pct = (idx / total_stage2 * 100.0) if total_stage2 else 100.0
         print(
             f"\r第二阶段进度: {idx}/{total_stage2} ({pct:.1f}%) | "
-            f"已通过: {len(final)} | 已耗时: {elapsed:.1f}s | 预计剩余: {remain:.1f}s",
-            end="",
-            flush=True,
+            f"已通过: {len(scored)} | 已耗时: {elapsed:.1f}s | 预计剩余: {remain:.1f}s",
+            end="", flush=True,
         )
-
         time.sleep(float(perf["sleep_between_stage2"]))
 
     if total_stage2:
         print()
 
-    return pd.DataFrame(final)
+    if not scored:
+        return pd.DataFrame()
+
+    df_scored = pd.DataFrame(scored).sort_values('score', ascending=False).head(top_n)
+    df_scored = df_scored.reset_index(drop=True)
+    df_scored.index += 1
+    return df_scored
 
 def quick_test_codes(codes: list[str]) -> pd.DataFrame:
     codes = [c.strip() for c in codes if c and c.strip()]
@@ -251,25 +333,31 @@ def quick_test_codes(codes: list[str]) -> pd.DataFrame:
 
     rows = []
     for c in codes:
-        # 腾讯 realtime 返回 code 可能不带市场前缀，这里两种都兼容
         key1 = c.replace('sz', '').replace('sh', '')
         info = realtime_by_code.get(c) or realtime_by_code.get(key1)
 
         if not info:
             print(f"实时数据获取失败：{c}")
-            rows.append({'code': c, 'passed_stage1': False, 'passed_stage2': False})
+            rows.append({'code': c, 'passed_stage1': False, 'score': None})
             continue
 
         passed_1 = fast_filter(info)
-        print("是否通过第一阶段：", passed_1)
+        print(f"[{c}] 第一阶段: {'✓' if passed_1 else '✗'}")
 
-        passed_2 = after_14_filter(c)
-        print("是否通过第二阶段：", passed_2)
+        result = score_stock(c)
+        if result:
+            score = result['score']
+            print(f"[{c}] 第二阶段评分: {score}")
+            for dim, val in result['detail'].items():
+                print(f"       {dim}: {val}")
+        else:
+            score = None
+            print(f"[{c}] 第二阶段: 不满足基础门槛或数据异常")
 
         row = dict(info)
         row['code'] = c
         row['passed_stage1'] = passed_1
-        row['passed_stage2'] = passed_2
+        row['score'] = score
         rows.append(row)
 
         time.sleep(float(CONFIG["performance"]["sleep_between_stage2"]))
