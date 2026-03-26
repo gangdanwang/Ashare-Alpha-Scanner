@@ -23,7 +23,8 @@ def get_price_min_tx(code, end_date=None, count=10, frequency='1d'):    #分钟�
     df=df[['time','open','close','high','low','volume']]    
     df[['open','close','high','low','volume']]=df[['open','close','high','low','volume']].astype('float')
     df.time=pd.to_datetime(df.time);   df.set_index(['time'], inplace=True);   df.index.name=''          #处理索引     
-    df['close'][-1]=float(st['data'][code]['qt'][code][3])                #最新基金数据是3位的
+    # 避免 chained assignment / 位置索引弃用告警（pandas 3.0 兼容）
+    df.iloc[-1, df.columns.get_loc('close')] = float(st['data'][code]['qt'][code][3])  # 最新基金数据是3位的
     return df
 
 

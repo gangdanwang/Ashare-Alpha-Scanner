@@ -32,8 +32,9 @@ CONFIG: dict = {
         "pct_change_min": 3.0,
         "pct_change_max": 7.0,
 
-        # 量比下限（无单位）
+        # 量比区间（无单位）：左开右开，例如 1.8 < 量比 < 3.5
         "volume_ratio_min": 1.8,
+        "volume_ratio_max": 3.5,
 
         # 换手率区间（单位：%）
         "turnover_min": 3.0,
@@ -58,10 +59,43 @@ CONFIG: dict = {
         "min_total_rows": 10,
 
         # 只取 >= 该时间点之后的数据段（HH:MM）
-        "cutoff_hhmm": "14:00",
+        "cutoff_hhmm": "14:30",
 
         # 14:00 第一根到当前最后一根的涨幅阈值（例如 0.012 = 1.2%）
         "rise_from_14_min": 0.012,
+
+        # 分时均线（14:00 后 5 分钟 K 线收盘价的简单均价）
+        "intraday_ma": {
+            # 是否要求当前价在分时均线之上
+            "require_price_above_average": True,
+            # 现价相对分时均线的最低倍数：1.0 表示严格高于均线（实现为 现价 > 均线）；
+            # 若设为 1.005 表示至少高于均线 0.5%
+            "min_price_to_ma_ratio": 1.003,
+        },
+
+        # 分时数据最少条数（14:00 之后至少要有这么多根K线）
+        "min_rows_after_cutoff": 2,
+
+        # 日线均线过滤：用于“当前价 > MA5/MA10”与乖离率控制
+        "daily_ma_filter": {
+            # 日线回看根数（需覆盖最大均线窗口）
+            "daily_count": 30,
+
+            # 短/长均线窗口
+            "ma_short_window": 5,
+            "ma_long_window": 10,
+
+            # 是否要求当前价 > MA短线
+            "require_price_above_ma_short": True,
+            # 是否要求当前价 > MA长线
+            "require_price_above_ma_long": True,
+
+            # 是否要求均线多头：MA短线 > MA长线（例如 MA5 > MA10）
+            "require_ma_short_above_ma_long": True,
+
+            # 乖离率上限（相对 MA短线，0.05 = 5%）
+            "max_bias_to_ma_short": 0.05,
+        },
     },
 
     # =============================

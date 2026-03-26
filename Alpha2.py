@@ -4,7 +4,8 @@ import argparse
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from Ashare import get_price
-from Ddemo3_config import CONFIG
+from Ddemo3_config import CONFIG as _DDEMO_CONFIG  # 保留兼容，不再使用
+from Alpha2_config import CONFIG
 
 # =============================
 # 1️⃣ 批量获取腾讯数据（核心优化）
@@ -90,25 +91,75 @@ def fast_filter(info):
 
 
 # =============================
-# 4️⃣ 第二阶段（14:00策略）
+# 4️⃣ 第二阶段：均线结构筛选
+#
+# Step1 优先级判断（满足任一即可进入 Step2）：
+#   优先级1（最高）：9:40后每根K线收盘价始终在累计分时均价上方
+#   优先级2：9:40后价格围绕分时均价运行（偏离率标准差 <= 阈值）
+#
+# Step2 叠加条件（通过Step1后必须同时满足）：
+#   条件A：现价高于当日分时均价 > min_price_above_intraday_ma
+#   条件B：现价相对MA5乖离率 <= max_bias_to_ma5
 # =============================
 def after_14_filter(code):
     try:
         cfg = CONFIG["after_14_filter"]
-        df = get_price(code, frequency=cfg["frequency"], count=int(cfg["count"]))
-        if df is None or len(df) < int(cfg["min_total_rows"]):
+
+        # ── 拉当日分钟K线 ──
+        intraday_df = get_price(code, frequency=cfg["intraday_frequency"], count=int(cfg["intraday_count"]))
+        if intraday_df is None or intraday_df.empty:
+            return False
+        intraday_df = intraday_df.sort_index()
+
+        # 只取今日数据
+        today = pd.Timestamp.now().normalize()
+        df_today = intraday_df[intraday_df.index >= today].copy()
+        if df_today.empty:
             return False
 
-        df = df.sort_index()
-        df_14 = df[df.index.strftime('%H:%M') >= str(cfg["cutoff_hhmm"])]
+        # 累计分时均价（每根K线对应截至该时刻的均价，即 expanding mean）
+        df_today['vwap'] = df_today['close'].expanding().mean()
 
-        if len(df_14) < 2:
+        now_price    = df_today['close'].iloc[-1]
+        intraday_ma  = df_today['close'].mean()   # 全天均价（用于 Step2 条件A）
+
+        # ── Step1：优先级判断 ──
+        start_time = cfg["priority_start_hhmm"]
+        df_priority = df_today[df_today.index.strftime('%H:%M') >= start_time]
+
+        priority_passed = False
+
+        if not df_priority.empty:
+            # 优先级1：9:40后每根K线收盘价始终高于当时的累计均价
+            always_above = (df_priority['close'] > df_priority['vwap']).all()
+            if always_above:
+                priority_passed = True
+            else:
+                # 优先级2：偏离率标准差 <= 阈值（价格围绕均线运行）
+                deviation = (df_priority['close'] - df_priority['vwap']) / df_priority['vwap']
+                if deviation.std() <= float(cfg["max_vwap_deviation_std"]):
+                    priority_passed = True
+
+        if not priority_passed:
             return False
 
-        start_price = df_14.iloc[0]['close']
-        now_price = df_14.iloc[-1]['close']
+        # ── Step2 条件A：现价高于分时均价超过阈值 ──
+        if intraday_ma <= 0:
+            return False
+        if (now_price / intraday_ma - 1) <= float(cfg["min_price_above_intraday_ma"]):
+            return False
 
-        return (now_price / start_price - 1) > float(cfg["rise_from_14_min"])
+        # ── Step2 条件B：MA5 乖离率 ──
+        daily_df = get_price(code, frequency='1d', count=int(cfg["daily_count"]))
+        if daily_df is None or len(daily_df) < int(cfg["ma_window"]):
+            return False
+        daily_df = daily_df.sort_index()
+        ma5 = daily_df['close'].rolling(int(cfg["ma_window"])).mean().iloc[-1]
+        if pd.isna(ma5) or ma5 <= 0:
+            return False
+
+        return abs(now_price / ma5 - 1) <= float(cfg["max_bias_to_ma5"])
+
     except:
         return False
 
