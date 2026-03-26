@@ -54,9 +54,11 @@ CONFIG: dict = {
     },
 
     # ============================================================
-    # 第二阶段：分时结构评分筛选（score_filter）
-    # 基于 9:40 到当前的每分钟K线进行多维度打分，保留总分前N名
-    # 运行时机：建议 14:40 左右运行，此时分钟线数据最完整
+    # 第二阶段：分时结构筛选
+    # 规则：
+    #   基础门槛：当前价格必须在分时均线（vwap）上方，否则直接排除
+    #   条件1：当天价格在分时均线上方的占比率 >= min_above_vwap_pct
+    #   条件2：当前价格相对 MA5（5日均线）乖离率 <= max_bias_to_ma5
     # ============================================================
     "after_14_filter": {
 
@@ -66,48 +68,30 @@ CONFIG: dict = {
         # 拉取根数，需覆盖当日全天（9:40~14:40 约300分钟，留余量）
         "intraday_count": 320,
 
-        # 评分起始时间，忽略开盘前震荡
-        "priority_start_hhmm": "09:40",
+        # 评分起始时间（只取该时间之后的K线参与计算）
+        "start_hhmm": "09:40",
 
-        # 保留总分排名前 N 的股票
+        # 保留结果数量上限
         "top_n": 10,
 
-        # ── 加分项 ──
+        # ── 基础门槛：当前价格在分时均线上方 ──
+        # 当前最新收盘价 > 当前累计 vwap，否则直接排除
+        # 无参数，始终生效
 
-        # 均线位置：全程运行在均价线之上得分
-        # 判断：9:40后每根K线 close > 累计vwap
-        "score_always_above_vwap": 10,
+        # ── 条件1：均线上方占比率 ──
+        # 9:40后所有K线中，close > vwap 的比例 >= 此值才保留
+        # 示例：0.6 = 60%，即至少60%的时间价格在均线上方
+        "min_above_vwap_pct": 0.6,
 
-        # 回踩质量：回踩均线不破 or 快速收回（≤ pullback_recover_minutes 分钟）得分
-        # 判断：出现 close < vwap 时，在 N 分钟内重新回到 vwap 上方
-        "score_pullback_quality": 8,
-        "pullback_recover_minutes": 3,   # 快速收回的时间窗口（分钟）
-
-        # 趋势斜率：缓慢上行（非直线拉升）得分
-        # 判断：vwap 斜率 > 0（整体向上），且最大单分钟涨幅 <= slope_max_single_pct
-        "score_trend_slope": 6,
-        "slope_max_single_pct": 0.03,    # 单分钟最大涨幅上限，超过视为直线拉升不得分（3%）
-
-        # 结构稳定性：无明显跳水得分
-        # 判断：9:40后任意单分钟跌幅 < stability_drop_threshold
-        "score_stability": 6,
-        "stability_drop_threshold": 0.01,  # 单分钟跌幅超过此值视为跳水（1%）
-
-        # ── 扣分项 ──
-
-        # 多次跌破均线扣分
-        # 判断：close < vwap 的次数 > break_vwap_max_times
-        "penalty_break_vwap": -5,
-        "break_vwap_max_times": 3,       # 允许跌破次数上限，超过则扣分
-
-        # 下午才启动扣分
-        # 判断：vwap 开始持续上行的时间 >= late_start_hhmm
-        "penalty_late_start": -6,
-        "late_start_hhmm": "14:00",      # 14:00后才开始上行视为下午启动
-
-        # 日线 MA5 乖离率上限（基础门槛，不满足直接排除，不参与评分）
+        # ── 条件2：MA5 乖离率上限 ──
+        # abs(现价 / MA5 - 1) <= 此值才保留
+        # 示例：0.05 = 5%
         "max_bias_to_ma5": 0.05,
+
+        # 日线回看根数（需 >= ma_window）
         "daily_count": 30,
+
+        # 日线均线窗口
         "ma_window": 5,
     },
 
