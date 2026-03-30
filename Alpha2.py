@@ -2,11 +2,13 @@ import requests
 import time
 import argparse
 import pandas as pd
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from Ashare import get_price
 from Ddemo3_config import CONFIG as _DDEMO_CONFIG  # 保留兼容，不再使用
 from Alpha2_config import CONFIG
 from notifier import notify_results
+from db import init_db, upsert_scan_results
 
 # =============================
 # 1️⃣ 批量获取腾讯数据（核心优化）
@@ -294,6 +296,25 @@ def pick_stocks_fast(test_code: str | None = None):
         'ma5_bias':  'MA5乖离率(%)',
     }))
 
+    # ===== 落库（当天重复覆盖）=====
+    try:
+        init_db()
+        trade_date = date.today().strftime('%Y-%m-%d')
+        db_rows = [
+            {
+                'code':      r['qcode'],
+                'name':      r['name'],
+                'price':     r['price'],
+                'above_pct': r['above_pct'],
+                'ma5_bias':  r['ma5_bias'],
+            }
+            for r in df_passed.to_dict('records')
+        ]
+        upsert_scan_results(trade_date, db_rows)
+        print(f"✅ 已落库 {len(db_rows)} 条（{trade_date}）")
+    except Exception as e:
+        print(f"⚠️  落库失败：{e}")
+
     # 发送通知
     df1_notify = pd.DataFrame([{
         '代码': x.get('qcode', x.get('code', '')), '名称': x.get('name', '-'),
@@ -366,6 +387,26 @@ def quick_test_codes(codes: list[str]) -> pd.DataFrame:
         _print_table(df2)
     else:
         print("无满足条件的股票")
+
+    # ===== 落库（当天重复覆盖）=====
+    if stage2_rows:
+        try:
+            init_db()
+            trade_date = date.today().strftime('%Y-%m-%d')
+            db_rows = [
+                {
+                    'code':      r['代码'],
+                    'name':      r['名称'],
+                    'price':     r['价格'],
+                    'above_pct': r['均线上方占比(%)'],
+                    'ma5_bias':  r['MA5乖离率(%)'],
+                }
+                for r in stage2_rows
+            ]
+            upsert_scan_results(trade_date, db_rows)
+            print(f"✅ 已落库 {len(db_rows)} 条（{trade_date}）")
+        except Exception as e:
+            print(f"⚠️  落库失败：{e}")
 
     df1_notify = pd.DataFrame(stage1_rows) if stage1_rows else pd.DataFrame()
     df2_notify = pd.DataFrame(stage2_rows) if stage2_rows else pd.DataFrame()
