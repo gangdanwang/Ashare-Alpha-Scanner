@@ -5,7 +5,6 @@ import pandas as pd
 from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from Ashare import get_price
-from Ddemo3_config import CONFIG as _DDEMO_CONFIG  # 保留兼容，不再使用
 from Alpha2_config import CONFIG
 from notifier import notify_results
 from db import init_db, upsert_scan_results
