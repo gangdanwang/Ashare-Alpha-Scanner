@@ -72,12 +72,17 @@ def api_market_overview():
                f'&fs=m:0+t:6,m:0+t:13,m:0+t:80,m:1+t:2,m:1+t:23'
                f'&fields=f2,f3,f18')
         try:
-            d = requests.get(url, timeout=10, headers=headers).json()['data']
+            resp = requests.get(url, timeout=10, headers=headers)
+            text = resp.text.strip()
+            if not text:
+                break  # 非交易时间返回空，直接退出
+            d = resp.json().get('data') or {}
         except Exception as e:
             return jsonify({'error': str(e)}), 500
         items = d.get('diff', [])
         all_items.extend(items)
-        if len(all_items) >= d['total'] or not items:
+        total = d.get('total', 0)
+        if not items or (total and len(all_items) >= total):
             break
         page += 1
 

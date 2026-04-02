@@ -3,83 +3,83 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Alpha 选股结果</title>
+  <title>Alpha 选股系统</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
-
-    header { background: #1a1d27; border-bottom: 1px solid #2d3148; padding: 16px 24px; display: flex; align-items: center; gap: 16px; }
-    header h1 { font-size: 18px; font-weight: 600; color: #a78bfa; }
-
-    .btn-scan { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; background: #7c3aed; color: #fff; transition: opacity .15s; margin-left: auto; }
-    .btn-scan:hover { opacity: .85; }
-    .btn-scan:disabled { opacity: .4; cursor: not-allowed; }
-
-    .log-panel { background: #0d0f18; border: 1px solid #2d3148; border-radius: 8px; padding: 14px 16px; font-family: monospace; font-size: 12px; color: #94a3b8; max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; margin-bottom: 24px; }
-    .log-panel .log-done { color: #4ade80; }
-    .log-panel .log-err  { color: #f87171; }
-    .date-bar { display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 24px; background: #13151f; border-bottom: 1px solid #2d3148; }
-    .date-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid #2d3148; background: #1a1d27; color: #94a3b8; cursor: pointer; font-size: 13px; transition: all .15s; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           background: #0f1117; color: #e2e8f0; height: 100vh;
+           display: flex; flex-direction: column; overflow: hidden; }
+    .market-bar { background: #13151f; border-bottom: 1px solid #2d3148; padding: 10px 24px;
+                  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+                  font-size: 13px; flex-shrink: 0; }
+    .market-bar .m-item { display: flex; align-items: center; gap: 6px; color: #64748b; }
+    .market-bar .m-val  { font-weight: 700; font-size: 15px; }
+    .m-up { color: #4ade80; } .m-down { color: #f87171; }
+    .m-flat { color: #94a3b8; } .m-lu { color: #fb923c; } .m-ld { color: #818cf8; }
+    .market-bar .m-refresh { margin-left: auto; color: #334155; font-size: 12px;
+                             cursor: pointer; user-select: none; }
+    .market-bar .m-refresh:hover { color: #64748b; }
+    .layout { display: flex; flex: 1; overflow: hidden; }
+    .sidebar { width: 190px; background: #1a1d27; border-right: 1px solid #2d3148;
+               display: flex; flex-direction: column; flex-shrink: 0; }
+    .sidebar-logo { padding: 18px 16px 14px; font-size: 16px; font-weight: 700;
+                    color: #a78bfa; border-bottom: 1px solid #2d3148; }
+    .nav-item { padding: 14px 20px; cursor: pointer; font-size: 14px; color: #94a3b8;
+                border-left: 3px solid transparent; transition: all .15s;
+                display: flex; align-items: center; gap: 10px; }
+    .nav-item:hover { background: #13151f; color: #e2e8f0; }
+    .nav-item.active { background: #13151f; color: #a78bfa;
+                       border-left-color: #a78bfa; font-weight: 600; }
+    .content { flex: 1; overflow-y: auto; }
+    .page { display: none; padding: 24px; }
+    .page.active { display: block; }
+    .page-header { display: flex; align-items: center; gap: 16px;
+                   margin-bottom: 20px; flex-wrap: wrap; }
+    .page-title { font-size: 16px; font-weight: 600; color: #a78bfa; }
+    .date-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .date-btn { padding: 5px 13px; border-radius: 6px; border: 1px solid #2d3148;
+                background: #1a1d27; color: #94a3b8; cursor: pointer; font-size: 13px;
+                transition: all .15s; }
     .date-btn:hover { border-color: #a78bfa; color: #a78bfa; }
-    .date-btn.active { background: #a78bfa; border-color: #a78bfa; color: #fff; font-weight: 600; }
-
-    .main { padding: 24px; }
-    .section-title { font-size: 14px; color: #64748b; margin-bottom: 12px; letter-spacing: .05em; text-transform: uppercase; }
-
+    .date-btn.active { background: #a78bfa; border-color: #a78bfa;
+                       color: #fff; font-weight: 600; }
+    .btn { padding: 6px 14px; border-radius: 5px; border: none; cursor: pointer;
+           font-size: 13px; font-weight: 600; transition: opacity .15s; }
+    .btn:hover { opacity: .8; } .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-primary { background: #7c3aed; color: #fff; }
+    .btn-sel   { background: #2563eb; color: #fff; }
+    .btn-exc   { background: #dc2626; color: #fff; }
+    .btn-reset { background: #374151; color: #d1d5db; }
+    .btn-buy   { background: #059669; color: #fff; }
+    .log-panel { background: #0d0f18; border: 1px solid #2d3148; border-radius: 8px;
+                 padding: 14px 16px; font-family: monospace; font-size: 12px;
+                 color: #94a3b8; max-height: 260px; overflow-y: auto;
+                 white-space: pre-wrap; word-break: break-all; margin-bottom: 20px; }
+    .log-done { color: #4ade80; } .log-err { color: #f87171; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    thead th { background: #1a1d27; color: #64748b; font-weight: 500; padding: 10px 14px; text-align: left; border-bottom: 1px solid #2d3148; white-space: nowrap; }
+    thead th { background: #1a1d27; color: #64748b; font-weight: 500; padding: 10px 14px;
+               text-align: left; border-bottom: 1px solid #2d3148; white-space: nowrap; }
     tbody tr { border-bottom: 1px solid #1e2130; transition: background .1s; }
     tbody tr:hover { background: #1a1d27; }
     tbody td { padding: 10px 14px; white-space: nowrap; }
-
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
-    .badge-up   { background: #14532d33; color: #4ade80; }
-    .badge-down { background: #7f1d1d33; color: #f87171; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
+             font-size: 12px; font-weight: 600; }
     .badge-wait { background: #1e293b; color: #94a3b8; }
     .badge-sel  { background: #1e3a5f; color: #60a5fa; }
     .badge-exc  { background: #3b1f1f; color: #f87171; }
-
-    .btn { padding: 5px 12px; border-radius: 5px; border: none; cursor: pointer; font-size: 12px; font-weight: 600; transition: opacity .15s; }
-    .btn:hover { opacity: .8; }
-    .btn-sel { background: #2563eb; color: #fff; }
-    .btn-exc { background: #dc2626; color: #fff; }
-    .btn-reset { background: #374151; color: #d1d5db; }
-    .btn-buy { background: #059669; color: #fff; padding: 8px 20px; font-size: 14px; border-radius: 6px; }
-
-    .actions-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-    .empty { color: #4b5563; text-align: center; padding: 48px; font-size: 15px; }
-
-    .trades-section { margin-top: 32px; }
-    .trades-section table tbody td { color: #94a3b8; }
-
-    .tag-pct { color: #34d399; font-weight: 600; }
+    .tag-pct  { color: #34d399; font-weight: 600; }
     .tag-bias { color: #fbbf24; }
-
-    #toast { position: fixed; bottom: 24px; right: 24px; background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 12px 20px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 999; }
+    .empty { color: #4b5563; text-align: center; padding: 48px; font-size: 15px; }
+    #toast { position: fixed; bottom: 24px; right: 24px; background: #1e293b;
+             border: 1px solid #334155; color: #e2e8f0; padding: 12px 20px;
+             border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .3s;
+             pointer-events: none; z-index: 999; }
     #toast.show { opacity: 1; }
-
-    /* 大盘信息栏 */
-    .market-bar { background: #13151f; border-bottom: 1px solid #2d3148; padding: 10px 24px; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; font-size: 13px; }
-    .market-bar .m-item { display: flex; align-items: center; gap: 6px; color: #64748b; }
-    .market-bar .m-val  { font-weight: 700; font-size: 15px; }
-    .m-up   { color: #4ade80; }
-    .m-down { color: #f87171; }
-    .m-flat { color: #94a3b8; }
-    .m-lu   { color: #fb923c; }
-    .m-ld   { color: #818cf8; }
-    .market-bar .m-refresh { margin-left: auto; color: #334155; font-size: 12px; cursor: pointer; user-select: none; }
-    .market-bar .m-refresh:hover { color: #64748b; }
   </style>
 </head>
 <body>
 
-<header>
-  <h1>📈 Alpha 选股结果</h1>
-  <span id="cur-date" style="color:#64748b;font-size:13px;"></span>
-  <button class="btn-scan" id="btn-scan" onclick="runScan()">▶ 立即扫描</button>
-</header>
-
-<div class="market-bar" id="market-bar">
+<div class="market-bar">
   <div class="m-item">上涨 <span class="m-val m-up" id="m-up">--</span></div>
   <div class="m-item">下跌 <span class="m-val m-down" id="m-down">--</span></div>
   <div class="m-item">平盘 <span class="m-val m-flat" id="m-flat">--</span></div>
@@ -88,169 +88,146 @@
   <span class="m-refresh" id="m-time">刷新中...</span>
 </div>
 
-<div class="date-bar" id="date-bar">
-  <span style="color:#4b5563;font-size:13px;align-self:center;">加载中...</span>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="sidebar-logo">📈 Alpha</div>
+    <div class="nav-item active" onclick="switchPage('scan',this)">🔍 扫描筛选</div>
+    <div class="nav-item" onclick="switchPage('manual',this)">✋ 手动筛选</div>
+    <div class="nav-item" onclick="switchPage('trade',this)">💰 模拟买入</div>
+  </nav>
+  <div class="content">
+
+    <div class="page active" id="page-scan">
+      <div class="page-header">
+        <span class="page-title">🔍 扫描筛选</span>
+        <button class="btn btn-primary" id="btn-scan" onclick="runScan()" style="margin-left:auto">▶ 立即扫描</button>
+      </div>
+      <div id="scan-log-wrap" style="display:none">
+        <div class="log-panel" id="scan-log-panel"></div>
+      </div>
+      <div class="date-bar" id="scan-date-bar"><span style="color:#4b5563;font-size:13px">加载中...</span></div>
+      <div id="scan-table-wrap"><div class="empty">请选择日期</div></div>
+    </div>
+
+    <div class="page" id="page-manual">
+      <div class="page-header"><span class="page-title">✋ 手动筛选</span></div>
+      <div class="date-bar" id="manual-date-bar"><span style="color:#4b5563;font-size:13px">加载中...</span></div>
+      <div id="manual-table-wrap"><div class="empty">请选择日期</div></div>
+    </div>
+
+    <div class="page" id="page-trade">
+      <div class="page-header">
+        <span class="page-title">💰 模拟买入</span>
+        <button class="btn btn-buy" onclick="mockBuy()" style="margin-left:auto">模拟买入（已选中）</button>
+      </div>
+      <div class="date-bar" id="trade-date-bar"><span style="color:#4b5563;font-size:13px">加载中...</span></div>
+      <div id="trade-table-wrap"><div class="empty">请选择日期</div></div>
+    </div>
+
+  </div>
 </div>
-
-<div class="main">
-  <div id="log-wrap" style="display:none">
-    <div class="section-title" style="margin-bottom:8px">扫描日志</div>
-    <div class="log-panel" id="log-panel"></div>
-  </div>
-
-  <div class="actions-bar">
-    <span class="section-title" style="margin:0">第二阶段筛选结果</span>
-    <button class="btn btn-buy" id="btn-mock-buy" style="margin-left:auto" onclick="mockBuy()">模拟买入（已选中）</button>
-  </div>
-
-  <div id="scan-table-wrap">
-    <div class="empty">请选择日期</div>
-  </div>
-
-  <div class="trades-section" id="trades-section" style="display:none">
-    <div class="section-title" style="margin-bottom:12px">模拟买入记录</div>
-    <div id="trades-table-wrap"></div>
-  </div>
-</div>
-
 <div id="toast"></div>
 
 <script>
-let currentDate = null;
-let scanData = [];
+const state = { scan: null, manual: null, trade: null };
 
-async function loadDates() {
-  const res = await fetch('/api/dates');
-  const dates = await res.json();
-  const bar = document.getElementById('date-bar');
+function switchPage(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  el.classList.add('active');
+}
+
+function buildDateBar(barId, dates, onSelect) {
+  const bar = document.getElementById(barId);
   bar.innerHTML = '';
-  if (!dates.length) { bar.innerHTML = '<span style="color:#4b5563;font-size:13px">暂无数据</span>'; return; }
+  if (!dates.length) {
+    bar.innerHTML = '<span style="color:#4b5563;font-size:13px">暂无数据</span>';
+    return;
+  }
   dates.forEach((d, i) => {
     const btn = document.createElement('button');
     btn.className = 'date-btn' + (i === 0 ? ' active' : '');
     btn.textContent = d;
-    btn.onclick = () => selectDate(d, btn);
+    btn.onclick = () => {
+      bar.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      onSelect(d);
+    };
     bar.appendChild(btn);
   });
-  selectDate(dates[0], bar.querySelector('.date-btn'));
+  onSelect(dates[0]);
 }
 
-async function selectDate(d, btn) {
-  currentDate = d;
-  document.getElementById('cur-date').textContent = d;
-  document.querySelectorAll('.date-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  await loadScan(d);
-  await loadTrades(d);
+async function loadAllDates() {
+  const dates = await fetch('/api/dates').then(r => r.json());
+  buildDateBar('scan-date-bar',   dates, d => { state.scan   = d; loadScanTable(d); });
+  buildDateBar('manual-date-bar', dates, d => { state.manual = d; loadManualTable(d); });
+  buildDateBar('trade-date-bar',  dates, d => { state.trade  = d; loadTradeTable(d); });
 }
 
-async function loadScan(d) {
-  const res = await fetch(`/api/scan/${d}`);
-  scanData = await res.json();
-  renderScan(scanData);
-}
-
-function renderScan(rows) {
-  const wrap = document.getElementById('scan-table-wrap');
-  if (!rows.length) { wrap.innerHTML = '<div class="empty">该日期暂无选股数据</div>'; return; }
-
-  const selMap = { 0: ['待选', 'badge-wait'], 1: ['已选中', 'badge-sel'], 2: ['已排除', 'badge-exc'] };
-  let html = `<table>
-    <thead><tr>
-      <th>#</th><th>代码</th><th>名称</th><th>价格</th>
-      <th>均线上方占比</th><th>MA5乖离率</th><th>状态</th><th>操作</th>
-    </tr></thead><tbody>`;
-
+function buildResultTable(rows, withActions) {
+  const selMap = { 0:['待选','badge-wait'], 1:['已选中','badge-sel'], 2:['已排除','badge-exc'] };
+  let html = '<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>价格</th><th>均线上方占比</th><th>MA5乖离率</th><th>状态</th>' + (withActions ? '<th>操作</th>' : '') + '</tr></thead><tbody>';
   rows.forEach((r, i) => {
     const [label, cls] = selMap[r.selected] || selMap[0];
-    html += `<tr id="row-${r.id}">
-      <td style="color:#4b5563">${i+1}</td>
-      <td style="font-family:monospace;color:#c4b5fd">${r.code}</td>
-      <td>${r.name || '-'}</td>
-      <td>${r.price != null ? Number(r.price).toFixed(2) : '-'}</td>
-      <td><span class="tag-pct">${r.above_pct != null ? r.above_pct + '%' : '-'}</span></td>
-      <td><span class="tag-bias">${r.ma5_bias != null ? r.ma5_bias + '%' : '-'}</span></td>
-      <td><span class="badge ${cls}" id="badge-${r.id}">${label}</span></td>
-      <td style="display:flex;gap:6px">
-        <button class="btn btn-sel" onclick="select(${r.id},1)">选中</button>
-        <button class="btn btn-exc" onclick="select(${r.id},2)">排除</button>
-        <button class="btn btn-reset" onclick="select(${r.id},0)">重置</button>
-      </td>
-    </tr>`;
+    const ops = withActions
+      ? '<td style="display:flex;gap:6px"><button class="btn btn-sel" onclick="doSelect(' + r.id + ',1)">选中</button><button class="btn btn-exc" onclick="doSelect(' + r.id + ',2)">排除</button><button class="btn btn-reset" onclick="doSelect(' + r.id + ',0)">重置</button></td>'
+      : '';
+    html += '<tr><td style="color:#4b5563">' + (i+1) + '</td><td style="font-family:monospace;color:#c4b5fd">' + r.code + '</td><td>' + (r.name||'-') + '</td><td>' + (r.price!=null?Number(r.price).toFixed(2):'-') + '</td><td><span class="tag-pct">' + (r.above_pct!=null?r.above_pct+'%':'-') + '</span></td><td><span class="tag-bias">' + (r.ma5_bias!=null?r.ma5_bias+'%':'-') + '</span></td><td><span class="badge ' + cls + '" id="badge-' + r.id + '">' + label + '</span></td>' + ops + '</tr>';
   });
-  html += '</tbody></table>';
-  wrap.innerHTML = html;
+  return html + '</tbody></table>';
 }
 
-async function select(id, val) {
+async function loadScanTable(d) {
+  const rows = await fetch('/api/scan/' + d).then(r => r.json());
+  document.getElementById('scan-table-wrap').innerHTML = rows.length ? buildResultTable(rows, false) : '<div class="empty">该日期暂无选股数据</div>';
+}
+
+async function loadManualTable(d) {
+  const rows = await fetch('/api/scan/' + d).then(r => r.json());
+  document.getElementById('manual-table-wrap').innerHTML = rows.length ? buildResultTable(rows, true) : '<div class="empty">该日期暂无选股数据</div>';
+}
+
+async function doSelect(id, val) {
   await fetch('/api/select', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({id, selected: val}) });
-  const selMap = { 0: ['待选', 'badge-wait'], 1: ['已选中', 'badge-sel'], 2: ['已排除', 'badge-exc'] };
+  const selMap = { 0:['待选','badge-wait'], 1:['已选中','badge-sel'], 2:['已排除','badge-exc'] };
   const [label, cls] = selMap[val];
-  const badge = document.getElementById(`badge-${id}`);
-  badge.textContent = label;
-  badge.className = `badge ${cls}`;
+  const badge = document.getElementById('badge-' + id);
+  if (badge) { badge.textContent = label; badge.className = 'badge ' + cls; }
   toast('已更新');
 }
 
 async function mockBuy() {
-  if (!currentDate) return;
-  const res = await fetch('/api/mock_buy', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({trade_date: currentDate}) });
-  const data = await res.json();
-  toast(`模拟买入 ${data.trades?.length || 0} 只`);
-  await loadTrades(currentDate);
+  const d = state.trade;
+  if (!d) return;
+  const data = await fetch('/api/mock_buy', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({trade_date: d}) }).then(r => r.json());
+  toast('模拟买入 ' + (data.trades ? data.trades.length : 0) + ' 只');
+  loadTradeTable(d);
 }
 
-async function loadTrades(d) {
-  const res = await fetch(`/api/trades/${d}`);
-  const trades = await res.json();
-  const sec = document.getElementById('trades-section');
-  const wrap = document.getElementById('trades-table-wrap');
-  if (!trades.length) { sec.style.display = 'none'; return; }
-  sec.style.display = 'block';
-  let html = `<table>
-    <thead><tr><th>#</th><th>代码</th><th>名称</th><th>买入价</th><th>股数</th><th>金额</th><th>预算</th><th>状态</th></tr></thead><tbody>`;
+async function loadTradeTable(d) {
+  const trades = await fetch('/api/trades/' + d).then(r => r.json());
+  const wrap = document.getElementById('trade-table-wrap');
+  if (!trades.length) { wrap.innerHTML = '<div class="empty">该日期暂无买入记录</div>'; return; }
+  let html = '<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>买入价</th><th>股数</th><th>金额</th><th>预算</th><th>状态</th></tr></thead><tbody>';
   trades.forEach((t, i) => {
-    html += `<tr>
-      <td style="color:#4b5563">${i+1}</td>
-      <td style="font-family:monospace;color:#c4b5fd">${t.code}</td>
-      <td>${t.name||'-'}</td>
-      <td>${Number(t.buy_price).toFixed(2)}</td>
-      <td>${t.shares}</td>
-      <td>¥${Number(t.amount).toFixed(2)}</td>
-      <td>¥${Number(t.budget).toFixed(2)}</td>
-      <td><span class="badge badge-sel">${t.status}</span></td>
-    </tr>`;
+    html += '<tr><td style="color:#4b5563">' + (i+1) + '</td><td style="font-family:monospace;color:#c4b5fd">' + t.code + '</td><td>' + (t.name||'-') + '</td><td>' + Number(t.buy_price).toFixed(2) + '</td><td>' + t.shares + '</td><td>¥' + Number(t.amount).toFixed(2) + '</td><td>¥' + Number(t.budget).toFixed(2) + '</td><td><span class="badge badge-sel">' + t.status + '</span></td></tr>';
   });
-  html += '</tbody></table>';
-  wrap.innerHTML = html;
-}
-
-function toast(msg) {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2000);
+  wrap.innerHTML = html + '</tbody></table>';
 }
 
 async function runScan() {
   const btn = document.getElementById('btn-scan');
-  btn.disabled = true;
-  btn.textContent = '⏳ 扫描中...';
-
-  const wrap = document.getElementById('log-wrap');
-  const panel = document.getElementById('log-panel');
-  wrap.style.display = 'block';
-  panel.innerHTML = '';
-
-  const res = await fetch('/api/run_scan', { method: 'POST' });
-  const data = await res.json();
+  btn.disabled = true; btn.textContent = '⏳ 扫描中...';
+  const wrap = document.getElementById('scan-log-wrap');
+  const panel = document.getElementById('scan-log-panel');
+  wrap.style.display = 'block'; panel.innerHTML = '';
+  const data = await fetch('/api/run_scan', { method:'POST' }).then(r => r.json());
   if (!data.ok) {
-    panel.innerHTML = `<span class="log-err">${data.msg}</span>`;
-    btn.disabled = false;
-    btn.textContent = '▶ 立即扫描';
-    return;
+    panel.innerHTML = '<span class="log-err">' + data.msg + '</span>';
+    btn.disabled = false; btn.textContent = '▶ 立即扫描'; return;
   }
-
   const es = new EventSource('/api/scan_log');
   es.onmessage = (e) => {
     const line = e.data;
@@ -260,54 +237,41 @@ async function runScan() {
       const el = document.createElement('div');
       el.className = code === '0' ? 'log-done' : 'log-err';
       el.textContent = code === '0' ? '✅ 扫描完成' : '❌ 扫描异常退出';
-      panel.appendChild(el);
-      panel.scrollTop = panel.scrollHeight;
-      es.close();
-      btn.disabled = false;
-      btn.textContent = '▶ 立即扫描';
-      // 刷新日期列表和当天数据
-      loadDates();
-      return;
+      panel.appendChild(el); panel.scrollTop = panel.scrollHeight;
+      es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描';
+      loadAllDates(); return;
     }
     const el = document.createElement('div');
-    el.textContent = line;
-    panel.appendChild(el);
-    panel.scrollTop = panel.scrollHeight;
+    el.textContent = line; panel.appendChild(el); panel.scrollTop = panel.scrollHeight;
   };
-  es.onerror = () => {
-    es.close();
-    btn.disabled = false;
-    btn.textContent = '▶ 立即扫描';
-  };
+  es.onerror = () => { es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描'; };
 }
 
-// ── 大盘信息 ──
-const MARKET_INTERVAL = 10000; // ms，可修改
-
+const MARKET_INTERVAL = 10000;
 async function loadMarket() {
   document.getElementById('m-time').textContent = '刷新中...';
   try {
-    const res = await fetch('/api/market_overview');
-    const d = await res.json();
+    const d = await fetch('/api/market_overview').then(r => r.json());
     document.getElementById('m-up').textContent   = d.up;
     document.getElementById('m-down').textContent = d.down;
     document.getElementById('m-flat').textContent = d.flat;
     document.getElementById('m-lu').textContent   = d.limit_up;
     document.getElementById('m-ld').textContent   = d.limit_down;
     const now = new Date();
-    document.getElementById('m-time').textContent =
-      `上次更新 ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
-  } catch(e) {
-    document.getElementById('m-time').textContent = '获取失败';
-  }
+    document.getElementById('m-time').textContent = '上次更新 ' + now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0') + ':' + now.getSeconds().toString().padStart(2,'0');
+  } catch(e) { document.getElementById('m-time').textContent = '获取失败'; }
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
 }
 
 loadMarket();
 setInterval(loadMarket, MARKET_INTERVAL);
 document.getElementById('m-time').addEventListener('click', loadMarket);
-
-// ── 初始化 ──
-loadDates();
+loadAllDates();
 </script>
 </body>
 </html>
