@@ -46,7 +46,8 @@ def api_select():
 def api_mock_buy():
     data       = request.json
     trade_date = data.get('trade_date', date.today().strftime('%Y-%m-%d'))
-    trades     = insert_mock_trades(trade_date)
+    ids        = data.get('ids')  # 可选：指定 record id 列表
+    trades     = insert_mock_trades(trade_date, ids=ids)
     return jsonify({'ok': True, 'trades': trades})
 
 

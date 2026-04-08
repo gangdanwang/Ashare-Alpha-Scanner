@@ -124,17 +124,24 @@ def update_selection(record_id: int, selected: int):
             )
 
 
-def insert_mock_trades(trade_date: str, budget: float = 10000.0) -> list[dict]:
+def insert_mock_trades(trade_date: str, budget: float = 10000.0, ids: list = None) -> list[dict]:
     """
-    对 selected=1 的股票模拟买入，每只预算 budget 元，按价格取整股数。
+    模拟买入。ids 不为空时只买入指定 record id；否则买入 selected=1 的全部。
     返回买入记录列表。
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM t_scan_result WHERE trade_date=%s AND selected=1",
-                (trade_date,)
-            )
+            if ids:
+                fmt = ','.join(['%s'] * len(ids))
+                cur.execute(
+                    f"SELECT * FROM t_scan_result WHERE trade_date=%s AND id IN ({fmt})",
+                    [trade_date] + list(ids)
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM t_scan_result WHERE trade_date=%s AND selected=1",
+                    (trade_date,)
+                )
             stocks = cur.fetchall()
 
         trades = []

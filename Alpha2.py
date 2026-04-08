@@ -9,6 +9,13 @@ from Alpha2_config import CONFIG
 from notifier import notify_results
 from db import init_db, upsert_scan_results
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://quote.eastmoney.com/",
+}
+FS_MAP = {"industry": "m:90+t:2", "concept": "m:90+t:3", "region": "m:90+t:1"}
+TYPE_LABEL = {"industry": "行业", "concept": "概念", "region": "地域"}
+
 # =============================
 # 1️⃣ 批量获取腾讯数据（核心优化）
 # =============================
@@ -184,6 +191,110 @@ def _print_table(df: pd.DataFrame):
     ):
         print(df.to_string())
 
+# =============================
+# 第三阶段：查询股票所属板块
+# =============================
+def _fetch_sector_list_for_stage3() -> list[dict]:
+    """拉行业+概念板块列表，返回 [{板块类型, 板块代码, 板块名称, 涨跌幅, 换手率, 成交额}]"""
+    result = []
+    for stype, fs in [("industry", "m:90+t:2"), ("concept", "m:90+t:3")]:
+        url = (
+            "http://push2.eastmoney.com/api/qt/clist/get"
+            "?pn=1&pz=300&po=1&np=1"
+            "&ut=bd1d9ddb04089700cf9c27f6f7426281"
+            "&fltt=2&invt=2&fid=f3"
+            f"&fs={fs}"
+            "&fields=f3,f6,f8,f12,f14"
+        )
+        try:
+            items = requests.get(url, headers=HEADERS, timeout=10).json()["data"]["diff"]
+        except Exception as e:
+            print(f"[{stype}] 板块列表请求失败: {e}")
+            continue
+        for item in items:
+            result.append({
+                "板块类型": TYPE_LABEL[stype],
+                "板块代码": item.get("f12", ""),
+                "板块名称": item.get("f14", "-"),
+                "板块涨跌幅(%)": item.get("f3", 0),
+                "板块换手率(%)": item.get("f8", 0),
+                "板块成交额(亿)": round(item.get("f6", 0) / 1e8, 2),
+            })
+    return result
+
+
+def _fetch_bk_stocks(bk_code: str) -> set[str]:
+    """拉板块内所有个股代码（纯数字，不含市场前缀）"""
+    url = (
+        f"http://push2.eastmoney.com/api/qt/clist/get"
+        f"?pn=1&pz=500&po=1&np=1"
+        f"&ut=bd1d9ddb04089700cf9c27f6f7426281"
+        f"&fltt=2&invt=2&fid=f3&fs=b:{bk_code}&fields=f12"
+    )
+    try:
+        diff = requests.get(url, headers=HEADERS, timeout=10).json()["data"]["diff"]
+        return {item["f12"] for item in diff}
+    except Exception:
+        return set()
+
+
+def stage3_enrich(df_passed: pd.DataFrame) -> pd.DataFrame:
+    """
+    第三阶段：为第二阶段结果补充所属板块信息。
+    每只股票取涨跌幅最高的行业板块 + 涨跌幅最高的概念板块。
+    """
+    if df_passed.empty:
+        return df_passed
+
+    # 提取纯数字代码（去掉 sz/sh 前缀）
+    target_codes = set()
+    for c in df_passed["qcode"]:
+        target_codes.add(c.replace("sz", "").replace("sh", ""))
+
+    print("\n【第三阶段】查询所属板块...")
+    sectors = _fetch_sector_list_for_stage3()
+    if not sectors:
+        print("板块数据获取失败，跳过第三阶段")
+        return df_passed
+
+    # 并发拉各板块成员
+    bk_codes = [s["板块代码"] for s in sectors]
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        stock_sets = list(ex.map(_fetch_bk_stocks, bk_codes))
+
+    # 建立 股票代码 -> [板块信息] 映射
+    code_to_sectors: dict[str, list] = {}
+    for sector, stocks in zip(sectors, stock_sets):
+        for code in stocks:
+            if code in target_codes:
+                code_to_sectors.setdefault(code, []).append(sector)
+
+    # 为每只股票选最优板块（行业取涨跌幅最高1个，概念取涨跌幅最高1个）
+    rows = []
+    for _, r in df_passed.iterrows():
+        pure_code = r["qcode"].replace("sz", "").replace("sh", "")
+        matched = code_to_sectors.get(pure_code, [])
+
+        industry = [s for s in matched if s["板块类型"] == "行业"]
+        concept  = [s for s in matched if s["板块类型"] == "概念"]
+
+        best_ind = max(industry, key=lambda x: x["板块涨跌幅(%)"], default=None)
+        best_con = max(concept,  key=lambda x: x["板块涨跌幅(%)"], default=None)
+
+        row = r.to_dict()
+        row["行业板块"]       = best_ind["板块名称"]    if best_ind else "-"
+        row["行业涨跌幅(%)"]  = best_ind["板块涨跌幅(%)"] if best_ind else "-"
+        row["行业换手率(%)"]  = best_ind["板块换手率(%)"] if best_ind else "-"
+        row["概念板块"]       = best_con["板块名称"]    if best_con else "-"
+        row["概念涨跌幅(%)"]  = best_con["板块涨跌幅(%)"] if best_con else "-"
+        rows.append(row)
+
+    result = pd.DataFrame(rows)
+    print(f"第三阶段完成，共 {len(result)} 只股票补充了板块信息")
+    return result
+
+
+
 
 # =============================
 # 5️⃣ 主函数（高性能）
@@ -293,6 +404,16 @@ def pick_stocks_fast(test_code: str | None = None):
         'price':     '价格',
         'above_pct': '均线上方占比(%)',
         'ma5_bias':  'MA5乖离率(%)',
+    }))
+
+    # ===== 第三阶段：补充板块信息 =====
+    df_passed = stage3_enrich(df_passed)
+    show_cols = ['qcode', 'name', 'price', 'above_pct', 'ma5_bias', '行业板块', '行业涨跌幅(%)', '行业换手率(%)', '概念板块', '概念涨跌幅(%)']
+    show_cols = [c for c in show_cols if c in df_passed.columns]
+    print("\n【第三阶段】板块信息补充结果\n")
+    _print_table(df_passed[show_cols].rename(columns={
+        'qcode': '代码', 'name': '名称', 'price': '价格',
+        'above_pct': '均线上方占比(%)', 'ma5_bias': 'MA5乖离率(%)',
     }))
 
     # ===== 落库（当天重复覆盖）=====

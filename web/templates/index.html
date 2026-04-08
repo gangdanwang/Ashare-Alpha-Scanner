@@ -75,6 +75,9 @@
              border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .3s;
              pointer-events: none; z-index: 999; }
     #toast.show { opacity: 1; }
+    input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; accent-color: #a78bfa; }
+    thead th.th-check { width: 40px; text-align: center; }
+    tbody td.td-check { text-align: center; }
   </style>
 </head>
 <body>
@@ -110,7 +113,10 @@
     </div>
 
     <div class="page" id="page-manual">
-      <div class="page-header"><span class="page-title">✋ 手动筛选</span></div>
+      <div class="page-header">
+        <span class="page-title">✋ 手动筛选</span>
+        <button class="btn btn-buy" id="btn-manual-buy" onclick="manualMockBuy()" style="margin-left:auto" disabled>模拟买入（已勾选 0）</button>
+      </div>
       <div class="date-bar" id="manual-date-bar"><span style="color:#4b5563;font-size:13px">加载中...</span></div>
       <div id="manual-table-wrap"><div class="empty">请选择日期</div></div>
     </div>
@@ -165,17 +171,36 @@ async function loadAllDates() {
   buildDateBar('trade-date-bar',  dates, d => { state.trade  = d; loadTradeTable(d); });
 }
 
-function buildResultTable(rows, withActions) {
+function buildResultTable(rows, withActions, withCheckbox) {
   const selMap = { 0:['待选','badge-wait'], 1:['已选中','badge-sel'], 2:['已排除','badge-exc'] };
-  let html = '<table><thead><tr><th>#</th><th>代码</th><th>名称</th><th>价格</th><th>均线上方占比</th><th>MA5乖离率</th><th>状态</th>' + (withActions ? '<th>操作</th>' : '') + '</tr></thead><tbody>';
+  let html = '<table><thead><tr>';
+  if (withCheckbox) html += '<th class="th-check"><input type="checkbox" id="check-all" onchange="toggleAll(this)"></th>';
+  html += '<th>#</th><th>代码</th><th>名称</th><th>价格</th><th>均线上方占比</th><th>MA5乖离率</th><th>状态</th>';
+  if (withActions) html += '<th>操作</th>';
+  html += '</tr></thead><tbody>';
+  
   rows.forEach((r, i) => {
     const [label, cls] = selMap[r.selected] || selMap[0];
-    const ops = withActions
-      ? '<td style="display:flex;gap:6px"><button class="btn btn-sel" onclick="doSelect(' + r.id + ',1)">选中</button><button class="btn btn-exc" onclick="doSelect(' + r.id + ',2)">排除</button><button class="btn btn-reset" onclick="doSelect(' + r.id + ',0)">重置</button></td>'
-      : '';
-    html += '<tr><td style="color:#4b5563">' + (i+1) + '</td><td style="font-family:monospace;color:#c4b5fd">' + r.code + '</td><td>' + (r.name||'-') + '</td><td>' + (r.price!=null?Number(r.price).toFixed(2):'-') + '</td><td><span class="tag-pct">' + (r.above_pct!=null?r.above_pct+'%':'-') + '</span></td><td><span class="tag-bias">' + (r.ma5_bias!=null?r.ma5_bias+'%':'-') + '</span></td><td><span class="badge ' + cls + '" id="badge-' + r.id + '">' + label + '</span></td>' + ops + '</tr>';
+    html += '<tr>';
+    if (withCheckbox) html += '<td class="td-check"><input type="checkbox" class="row-check" data-id="' + r.id + '" onchange="updateBuyBtn()"></td>';
+    html += '<td style="color:#4b5563">' + (i+1) + '</td>';
+    html += '<td style="font-family:monospace;color:#c4b5fd">' + r.code + '</td>';
+    html += '<td>' + (r.name||'-') + '</td>';
+    html += '<td>' + (r.price!=null?Number(r.price).toFixed(2):'-') + '</td>';
+    html += '<td><span class="tag-pct">' + (r.above_pct!=null?r.above_pct+'%':'-') + '</span></td>';
+    html += '<td><span class="tag-bias">' + (r.ma5_bias!=null?r.ma5_bias+'%':'-') + '</span></td>';
+    html += '<td><span class="badge ' + cls + '" id="badge-' + r.id + '">' + label + '</span></td>';
+    if (withActions) {
+      html += '<td style="display:flex;gap:6px">';
+      html += '<button class="btn btn-sel" onclick="doSelect(' + r.id + ',1)">选中</button>';
+      html += '<button class="btn btn-exc" onclick="doSelect(' + r.id + ',2)">排除</button>';
+      html += '<button class="btn btn-reset" onclick="doSelect(' + r.id + ',0)">重置</button>';
+      html += '</td>';
+    }
+    html += '</tr>';
   });
   return html + '</tbody></table>';
+}
 }
 
 async function loadScanTable(d) {
@@ -185,7 +210,42 @@ async function loadScanTable(d) {
 
 async function loadManualTable(d) {
   const rows = await fetch('/api/scan/' + d).then(r => r.json());
-  document.getElementById('manual-table-wrap').innerHTML = rows.length ? buildResultTable(rows, true) : '<div class="empty">该日期暂无选股数据</div>';
+  const wrap = document.getElementById('manual-table-wrap');
+  wrap.innerHTML = rows.length ? buildResultTable(rows, true, true) : '<div class="empty">该日期暂无选股数据</div>';
+  updateBuyBtn();
+}
+
+function toggleAll(cb) {
+  document.querySelectorAll('.row-check').forEach(c => c.checked = cb.checked);
+  updateBuyBtn();
+}
+
+function updateBuyBtn() {
+  const checked = document.querySelectorAll('.row-check:checked');
+  const btn = document.getElementById('btn-manual-buy');
+  if (!btn) return;
+  btn.disabled = checked.length === 0;
+  btn.textContent = '模拟买入（已勾选 ' + checked.length + '）';
+}
+
+async function manualMockBuy() {
+  const d = state.manual;
+  if (!d) return;
+  const ids = Array.from(document.querySelectorAll('.row-check:checked')).map(c => parseInt(c.dataset.id));
+  if (!ids.length) return;
+  const btn = document.getElementById('btn-manual-buy');
+  btn.disabled = true;
+  const data = await fetch('/api/mock_buy', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({trade_date: d, ids: ids})
+  }).then(r => r.json());
+  toast('模拟买入 ' + (data.trades ? data.trades.length : 0) + ' 只');
+  btn.disabled = false;
+  // 切换到模拟买入页刷新
+  const tradeNav = document.querySelector('.nav-item:nth-child(4)');
+  if (tradeNav) switchPage('trade', tradeNav);
+  loadTradeTable(d);
 }
 
 async function doSelect(id, val) {
