@@ -207,7 +207,12 @@ def _fetch_sector_list_for_stage3() -> list[dict]:
             "&fields=f3,f6,f8,f12,f14"
         )
         try:
-            items = requests.get(url, headers=HEADERS, timeout=10).json()["data"]["diff"]
+            resp = requests.get(url, headers=HEADERS, timeout=10)
+            if resp.status_code != 200 or not resp.text.strip():
+                print(f"[{stype}] 板块 API 不可用（HTTP {resp.status_code}），跳过")
+                continue
+            data = resp.json().get("data") or {}
+            items = data.get("diff") or []
         except Exception as e:
             print(f"[{stype}] 板块列表请求失败: {e}")
             continue
@@ -232,7 +237,11 @@ def _fetch_bk_stocks(bk_code: str) -> set[str]:
         f"&fltt=2&invt=2&fid=f3&fs=b:{bk_code}&fields=f12"
     )
     try:
-        diff = requests.get(url, headers=HEADERS, timeout=10).json()["data"]["diff"]
+        resp = requests.get(url, headers=HEADERS, timeout=10)
+        if resp.status_code != 200 or not resp.text.strip():
+            return set()
+        data = resp.json().get("data") or {}
+        diff = data.get("diff") or []
         return {item["f12"] for item in diff}
     except Exception:
         return set()
