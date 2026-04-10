@@ -353,7 +353,7 @@ def pick_stocks_fast(test_code: str | None = None):
     print(f"\n【第一阶段】粗筛通过 {len(filtered)} 只\n")
     if filtered:
         df_stage1 = pd.DataFrame([{
-            '代码':   x.get('qcode', x.get('code', '')),
+            '代码':   x.get('qcode', x.get('code', ''))[2:],
             '名称':   x.get('name', '-'),
             '价格':   x.get('price', '-'),
             '涨跌幅': x.get('涨跌幅', '-'),
@@ -413,7 +413,7 @@ def pick_stocks_fast(test_code: str | None = None):
         'price':     '价格',
         'above_pct': '均线上方占比(%)',
         'ma5_bias':  'MA5乖离率(%)',
-    }))
+    }).assign(**{'代码': lambda d: d['代码'].str[2:]}))
 
     # ===== 第三阶段：补充板块信息 =====
     df_passed = stage3_enrich(df_passed)
@@ -423,7 +423,7 @@ def pick_stocks_fast(test_code: str | None = None):
     _print_table(df_passed[show_cols].rename(columns={
         'qcode': '代码', 'name': '名称', 'price': '价格',
         'above_pct': '均线上方占比(%)', 'ma5_bias': 'MA5乖离率(%)',
-    }))
+    }).assign(**{'代码': lambda d: d['代码'].str[2:]}))
 
     # ===== 落库（当天重复覆盖）=====
     try:
@@ -479,7 +479,7 @@ def quick_test_codes(codes: list[str]) -> pd.DataFrame:
         # 第一阶段
         if fast_filter(info):
             stage1_rows.append({
-                '代码':   c,
+                '代码':   c[2:],
                 '名称':   info.get('name', '-'),
                 '价格':   info.get('price', '-'),
                 '涨跌幅': info.get('涨跌幅', '-'),
@@ -491,7 +491,7 @@ def quick_test_codes(codes: list[str]) -> pd.DataFrame:
         result = stage2_filter(c)
         if result:
             stage2_rows.append({
-                '代码':          c,
+                '代码':          c[2:],
                 '名称':          info.get('name', '-') if info else '-',
                 '价格':          result['now_price'],
                 '均线上方占比(%)': result['above_pct'],
