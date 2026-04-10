@@ -201,7 +201,7 @@ function buildResultTable(rows, withActions, withCheckbox) {
   });
   return html + '</tbody></table>';
 }
-}
+
 
 async function loadScanTable(d) {
   const rows = await fetch('/api/scan/' + d).then(r => r.json());
