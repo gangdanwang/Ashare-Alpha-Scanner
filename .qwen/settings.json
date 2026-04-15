@@ -5,7 +5,12 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(python *)",
-      "Bash(ls *)"
+      "Bash(ls *)",
+      "Bash(git push *)",
+      "Bash(/opt/homebrew/bin/python3.11 *)",
+      "Bash(networksetup *)",
+      "Bash(mysql *)",
+      "Bash(rm *)"
     ]
   },
   "$version": 3

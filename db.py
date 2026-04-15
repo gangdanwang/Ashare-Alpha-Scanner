@@ -80,6 +80,10 @@ def init_db():
                 if stmt.upper().startswith('CREATE TABLE'):
                     cur.execute(stmt)
 
+    # 初始化股票日线缓存表
+    from stock_cache import init_stock_cache_table
+    init_stock_cache_table()
+
 
 def upsert_scan_results(trade_date: str, rows: list[dict]):
     """

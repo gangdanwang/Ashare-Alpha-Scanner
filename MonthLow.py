@@ -48,6 +48,7 @@ MonthLow.py - 近两月低点选股策略（含T日最低价筛选）
   v4.5: 移除近N日最低价字段，增加当前价格vs T-1日最低价(%)字段
   v4.6: 增加T日最低价vs T-1日最低价(%)字段
   v4.7: 新增从文件读取股票代码列表并进行筛选的功能
+  v4.8: 新增股票日线数据本地缓存功能（减少API调用，提高查询速度）
 """
 
 import pandas as pd
@@ -55,6 +56,13 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from Ashare import get_price
+
+# 初始化本地缓存表
+try:
+    from stock_cache import init_stock_cache_table
+    init_stock_cache_table()
+except:
+    pass
 
 # ============================================================
 # 配置参数
