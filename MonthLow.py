@@ -599,6 +599,33 @@ def pick_month_low_stocks():
 
     df_result = pd.DataFrame(results)
 
+    # 计算百分比字段
+    df_result['price_vs_t1_low_pct'] = ((df_result['current_price'] - df_result['t_1_low']) / df_result['t_1_low'] * 100).round(2)
+    df_result['t_low_vs_t1_low_pct'] = ((df_result['t_low'] - df_result['t_1_low']) / df_result['t_1_low'] * 100).round(2)
+
+    # ── 落库 ──
+    try:
+        from db import init_db, upsert_month_low_results
+        init_db()
+        scan_date = date.today().strftime('%Y-%m-%d')
+        db_rows = [
+            {
+                'code':                r['code'].replace('sz','').replace('sh',''),
+                'name':                r['name'],
+                'current_price':       r['current_price'],
+                't_low':               r['t_low'],
+                't_1_low':             r['t_1_low'],
+                'price_vs_t1_low_pct': r['price_vs_t1_low_pct'],
+                't_low_vs_t1_low_pct': r['t_low_vs_t1_low_pct'],
+                'lookback_days':       r.get('lookback_days', CONFIG['filter']['lookback_days']),
+            }
+            for r in df_result.to_dict('records')
+        ]
+        upsert_month_low_results(scan_date, db_rows)
+        print(f"✅ 已落库 {len(db_rows)} 条（{scan_date}）")
+    except Exception as e:
+        print(f"⚠️  落库失败：{e}")
+
     # 按百分比从低到高排序
     df_result = df_result.sort_values('price_vs_t1_low_pct', ascending=True).reset_index(drop=True)
     df_result.index += 1
