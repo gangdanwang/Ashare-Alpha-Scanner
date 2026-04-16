@@ -537,15 +537,18 @@ def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
 
     for r in results:
         rt = realtime.get(r['code'], {})
-        t_low         = rt.get('t_low', 0.0)
+        t_low_rt      = rt.get('t_low', 0.0)
         current_price = rt.get('current_price', 0.0)
         name          = rt.get('name', '')
         t_1_low       = r['t_1_low']
 
         # 无实时数据则跳过
-        if t_low <= 0 or current_price <= 0:
+        if current_price <= 0:
             excluded += 1
             continue
+
+        # 盘前 t_low=0，用 t_1_low 作为今日最低的替代（昨日收盘数据）
+        t_low = t_low_rt if t_low_rt > 0 else t_1_low
 
         # 筛选条件：今日最低价 > T-1 日最低价
         if t_low > t_1_low:
