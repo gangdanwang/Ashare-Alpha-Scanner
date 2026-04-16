@@ -45,7 +45,7 @@ def get_today_high_low(codes: list[str]) -> dict[str, dict]:
                     result[qcode] = {
                         'name':       data[1],
                         'current':    float(data[3])  if data[3]  else None,
-                        'prev_close': float(data[4])  if data[4]  else None,  # T-1 收盘
+                        'prev_close': float(data[4])  if data[4]  else None,
                         'high':       float(data[33]) if data[33] else None,  # T 日最高
                         'low':        float(data[34]) if data[34] else None,  # T 日最低
                     }

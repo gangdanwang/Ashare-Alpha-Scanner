@@ -518,12 +518,13 @@ def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
             try:
                 head = line.split('=', 1)[0].strip()
                 qcode = head[2:] if head.startswith('v_') else None
-                if qcode and len(data) > 33:
+                if qcode and len(data) > 34:
                     realtime[qcode] = {
                         'name':          data[1],
                         'current_price': float(data[3]) if data[3] else 0.0,
-                        # data[33] = 今日最低价
-                        't_low':         float(data[33]) if data[33] else 0.0,
+                        # data[33] = 今日最高价，data[34] = 今日最低价
+                        't_high':        float(data[33]) if data[33] else 0.0,
+                        't_low':         float(data[34]) if data[34] else 0.0,
                     }
             except Exception:
                 continue
