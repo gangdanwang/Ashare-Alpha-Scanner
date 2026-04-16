@@ -370,12 +370,12 @@ function toast(msg) {
 
 // ── K线浮层 ──
 function klineUrl(code) {
-  // 东方财富日线图：沪市 nid=1.xxxxxx，深市 nid=0.xxxxxx
+  // 东方财富日K线图：沪市 nid=1.xxxxxx，深市 nid=0.xxxxxx
+  // imageType=k 为日线K线图
   const market = code.startsWith('6') ? '1' : '0';
   return 'http://webquotepic.eastmoney.com/GetPic.aspx' +
-    '?imageType=r&token=44c9d251add88e27b65ed86506f6758a' +
-    '&nid=' + market + '.' + code +
-    '&type=r&unitWidth=-6&ef=&formula=RSI&AT=1';
+    '?nid=' + market + '.' + code +
+    '&imageType=k&token=44c9d251add88e27b65ed86506f6758a';
 }
 
 let _klineTimer = null;
