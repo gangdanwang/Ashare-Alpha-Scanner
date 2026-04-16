@@ -272,3 +272,57 @@ def get_month_low_dates(n: int = 20) -> list[str]:
                 (n,)
             )
             return [str(r['scan_date']) for r in cur.fetchall()]
+
+
+def get_month_low_candidates(lookback_days: int, codes: list[str] = None) -> list[str]:
+    """
+    第三阶段：一条 SQL 找出 T-1 日最低价 = 近 N 日最低价的股票代码。
+
+    窗口：ROWS BETWEEN (N-1) PRECEDING AND CURRENT ROW
+    即含当前行（T-1日）在内的近 N 个交易日。
+
+    参数：
+      lookback_days: 回看天数 N，窗口大小为 N，PRECEDING = N-1
+      codes: 可选，限定查询的股票代码列表（纯数字，不含 sz/sh 前缀）
+
+    返回：
+      list[str]: 满足条件的纯数字股票代码列表
+    """
+    preceding = lookback_days - 1  # N 日窗口 = (N-1) PRECEDING + CURRENT ROW
+
+    where_clause = ""
+    params: list = [preceding]
+
+    if codes:
+        # 去掉 sz/sh 前缀，统一用纯数字代码查询
+        clean_codes = [c.replace('sz', '').replace('sh', '') for c in codes]
+        placeholders = ','.join(['%s'] * len(clean_codes))
+        where_clause = f"WHERE code IN ({placeholders})"
+        params.extend(clean_codes)
+
+    sql = f"""
+        SELECT code
+        FROM (
+            SELECT
+                code,
+                low,
+                MIN(low) OVER (
+                    PARTITION BY code
+                    ORDER BY trade_date
+                    ROWS BETWEEN %s PRECEDING AND CURRENT ROW
+                ) AS min_low_n,
+                ROW_NUMBER() OVER (
+                    PARTITION BY code
+                    ORDER BY trade_date DESC
+                ) AS rn
+            FROM t_stock_daily
+            {where_clause}
+        ) t
+        WHERE rn = 2
+          AND low = min_low_n
+    """
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return [r['code'] for r in cur.fetchall()]

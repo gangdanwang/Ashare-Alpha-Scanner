@@ -597,56 +597,45 @@ def pick_month_low_stocks():
         return pd.DataFrame()
     print(f"✅ 第二阶段完成：剩余 {len(stocks)} 只股票（耗时 {elapsed:.2f}秒）")
 
-    # ── 第三步：筛选T-1日创近N日新低的股票 ──
+    # ── 第三步：SQL 批量筛选 T-1 日创近 N 日新低的股票 ──
     print("\n" + "=" * 60)
     lookback = CONFIG["filter"]["lookback_days"]
-    print(f"🔍 第三阶段：筛选T-1日创近{lookback}日新低的股票")
+    print(f"🔍 第三阶段：SQL 筛选 T-1 日创近{lookback}日新低的股票")
     print("=" * 60)
-    print(f"📋 筛选条件：T-1日最低价 == 近{lookback}日最低价（创近{lookback}日新低）")
+    print(f"📋 窗口：ROWS BETWEEN {lookback-1} PRECEDING AND CURRENT ROW（近{lookback}日）")
 
-    perf = CONFIG["performance"]
-
-    # ── 预热缓存：批量拉取日线数据，避免第三阶段每只股票单独发 HTTP 请求 ──
-    _warm_up_cache(stocks, lookback, int(perf["screen_workers"]))
-
-    results = []
-    total = len(stocks)
+    from db import get_month_low_candidates
     start_time = datetime.now()
 
-    def process_single(code):
-        return check_month_low(code)
-
-    completed = 0
-    with ThreadPoolExecutor(max_workers=int(perf["screen_workers"])) as executor:
-        futures = {executor.submit(process_single, code): code for code in stocks}
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
-            completed += 1
-            elapsed = (datetime.now() - start_time).total_seconds()
-            avg_speed = completed / elapsed if elapsed > 0 else 0
-            remain = max(total - completed, 0) / avg_speed if avg_speed > 0 else 0
-            pct = completed / total * 100
-
-            print(
-                f"\r⏳ 进度: {completed}/{total} ({pct:.1f}%) | "
-                f"已通过: {len(results)} | "
-                f"速度: {avg_speed:.0f}只/秒 | "
-                f"剩余: {remain:.0f}秒",
-                end="",
-                flush=True
-            )
-
-    print()
+    # 传入纯数字代码列表（去掉 sz/sh 前缀）
+    candidate_codes = get_month_low_candidates(lookback, stocks)
     elapsed = (datetime.now() - start_time).total_seconds()
-    lookback = CONFIG["filter"]["lookback_days"]
-    print(f"\n✅ 第三阶段完成：共找到 {len(results)} 只T-1日创近{lookback}日新低的股票（耗时 {elapsed:.2f}秒）\n")
+    print(f"✅ 第三阶段完成：共找到 {len(candidate_codes)} 只（耗时 {elapsed:.2f}秒）")
     print("=" * 60)
 
-    if not results:
-        print("❌ 无股票满足前三阶段条件，程序退出")
+    if not candidate_codes:
+        print("❌ 无股票满足第三阶段条件，程序退出")
         return pd.DataFrame()
+
+    # 把纯数字代码还原为带前缀的格式，供第四阶段实时接口使用
+    # 6 开头 → sh，其他 → sz
+    # 同时从缓存读取 T-1 日最低价，供落库使用
+    from stock_cache import get_cached_daily_data
+    results = []
+    for c in candidate_codes:
+        code_with_prefix = ('sh' if c.startswith('6') else 'sz') + c
+        # 读缓存取 T-1 日最低价
+        df_hist = get_cached_daily_data(c)
+        t_1_low   = round(float(df_hist['low'].iloc[-1]), 2)   if df_hist is not None and not df_hist.empty else None
+        t_1_close = round(float(df_hist['close'].iloc[-1]), 2) if df_hist is not None and not df_hist.empty else None
+        results.append({
+            'code':          code_with_prefix,
+            'name':          '',
+            't_1_low':       t_1_low,
+            't_1_close':     t_1_close,
+            'period_low':    None,
+            'lookback_days': lookback,
+        })
 
     # ── 第四步：筛选T日最低价 > T-1日最低价 ──
     start_time = datetime.now()
