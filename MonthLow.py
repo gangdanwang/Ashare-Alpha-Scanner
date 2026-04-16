@@ -930,7 +930,13 @@ if __name__ == '__main__':
     parser.add_argument('--code', action='append', default=[], help="测试指定代码，如 --code sz000001 --code sh600000")
     parser.add_argument('--codes', type=str, default=None, help='逗号分隔的测试代码')
     parser.add_argument('--file', type=str, default=None, help='包含股票代码的文件路径（每行一个代码）')
+    parser.add_argument('--lookback', type=int, default=None, help='近N个交易日新低（覆盖配置文件，如 --lookback 20）')
     args = parser.parse_args()
+
+    # 命令行参数覆盖配置
+    if args.lookback is not None:
+        CONFIG['filter']['lookback_days'] = args.lookback
+        print(f'⚙️  回看天数已设置为 {args.lookback} 日')
 
     # 优先级：文件模式 > 测试代码模式 > 全市场筛选
     if args.file:

@@ -139,13 +139,18 @@ def api_ml_run():
     if _ml_state['running']:
         return jsonify({'ok': False, 'msg': '扫描正在进行中'})
 
+    data = request.json or {}
+    lookback_days = int(data.get('lookback_days', 10))
+    if not (1 <= lookback_days <= 250):
+        return jsonify({'ok': False, 'msg': 'lookback_days 需在 1~250 之间'})
+
     def _run():
         _ml_state['running'] = True
         while not _ml_state['log'].empty():
             _ml_state['log'].get_nowait()
         try:
             proc = subprocess.Popen(
-                [PYTHON, MONTH_LOW],
+                [PYTHON, MONTH_LOW, '--lookback', str(lookback_days)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True, bufsize=1,

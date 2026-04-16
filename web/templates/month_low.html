@@ -113,7 +113,20 @@
     .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
     .empty-state p { font-size: 14px; }
 
-    /* ── Toast ── */
+    /* ── 筛选条件卡片 ── */
+    .filter-card { background: var(--white); border-radius: var(--radius);
+                   border: 1px solid var(--border); padding: 16px 20px;
+                   margin-bottom: 20px; display: flex; align-items: center;
+                   gap: 24px; flex-wrap: wrap; }
+    .filter-card .filter-label { font-size: 13px; color: var(--text2); font-weight: 500; }
+    .filter-group { display: flex; align-items: center; gap: 8px; }
+    .filter-input { width: 72px; height: 34px; border: 1px solid var(--border);
+                    border-radius: var(--radius); padding: 0 10px; font-size: 14px;
+                    color: var(--text1); outline: none; text-align: center;
+                    transition: border-color .15s; }
+    .filter-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-lt); }
+    .filter-unit { font-size: 13px; color: var(--text3); }
+    .filter-hint { font-size: 12px; color: var(--text3); margin-left: 4px; }
     #toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
              background: rgba(29,33,41,.9); color: #fff; padding: 10px 20px;
              border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity .3s;
@@ -135,6 +148,17 @@
 </div>
 
 <div class="main">
+
+  <!-- 筛选条件 -->
+  <div class="filter-card">
+    <span class="filter-label">⚙️ 筛选条件</span>
+    <div class="filter-group">
+      <span class="filter-unit">近</span>
+      <input class="filter-input" type="number" id="input-lookback" value="10" min="1" max="250" />
+      <span class="filter-unit">个交易日新低</span>
+      <span class="filter-hint">（T-1日最低价 == 近N日最低价）</span>
+    </div>
+  </div>
 
   <!-- 操作栏 -->
   <div class="toolbar">
@@ -283,13 +307,21 @@ function renderStats(rows) {
 
 // ── 扫描 ──
 async function runScan() {
+  const lookback = parseInt(document.getElementById('input-lookback').value) || 10;
+  if (lookback < 1 || lookback > 250) { toast('回看天数请填 1~250'); return; }
+
   const btn = document.getElementById('btn-run');
   btn.disabled = true; btn.textContent = '⏳ 扫描中...';
   const wrap = document.getElementById('log-wrap');
   const panel = document.getElementById('log-panel');
   wrap.style.display = 'block'; panel.innerHTML = '';
 
-  const data = await fetch('/api/month_low/run', { method: 'POST' }).then(r => r.json());
+  const data = await fetch('/api/month_low/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({lookback_days: lookback})
+  }).then(r => r.json());
+
   if (!data.ok) {
     panel.innerHTML = '<span class="log-err">' + data.msg + '</span>';
     btn.disabled = false; btn.textContent = '▶ 立即扫描'; return;
