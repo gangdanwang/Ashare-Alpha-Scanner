@@ -6,148 +6,141 @@
   <title>MonthLow · 近N日低点选股</title>
   <style>
     :root {
-      --blue:    #1664FF;
-      --blue-lt: #E8F0FF;
-      --green:   #00B42A;
-      --red:     #F53F3F;
-      --orange:  #FF7D00;
-      --text1:   #1D2129;
-      --text2:   #4E5969;
-      --text3:   #86909C;
-      --border:  #E5E6EB;
-      --bg:      #F2F3F5;
-      --white:   #FFFFFF;
-      --radius:  8px;
+      --blue:#1664FF; --blue-lt:#E8F0FF; --green:#00B42A; --red:#F53F3F;
+      --text1:#1D2129; --text2:#4E5969; --text3:#86909C;
+      --border:#E5E6EB; --bg:#F2F3F5; --white:#FFFFFF; --radius:8px;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: "PingFang SC", "Helvetica Neue", Arial, sans-serif;
-           background: var(--bg); color: var(--text1); min-height: 100vh; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:"PingFang SC","Helvetica Neue",Arial,sans-serif;
+           background:var(--bg); color:var(--text1);
+           height:100vh; display:flex; flex-direction:column; overflow:hidden; }
 
-    /* ── 顶栏 ── */
-    .topbar { background: var(--white); border-bottom: 1px solid var(--border);
-              padding: 0 24px; height: 56px; display: flex; align-items: center;
-              gap: 16px; position: sticky; top: 0; z-index: 100;
-              box-shadow: 0 1px 4px rgba(0,0,0,.06); }
-    .topbar-logo { font-size: 16px; font-weight: 700; color: var(--blue);
-                   display: flex; align-items: center; gap: 8px; }
-    .topbar-logo span { font-size: 20px; }
-    .topbar-sub { font-size: 13px; color: var(--text3); border-left: 1px solid var(--border);
-                  padding-left: 16px; }
-    .topbar-back { margin-left: auto; font-size: 13px; color: var(--blue);
-                   text-decoration: none; display: flex; align-items: center; gap: 4px; }
-    .topbar-back:hover { opacity: .8; }
+    /* 顶栏 */
+    .topbar { background:var(--white); border-bottom:1px solid var(--border);
+              padding:0 24px; height:52px; display:flex; align-items:center;
+              gap:16px; flex-shrink:0; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+    .topbar-logo { font-size:15px; font-weight:700; color:var(--blue); display:flex; align-items:center; gap:6px; }
+    .topbar-sub  { font-size:13px; color:var(--text3); border-left:1px solid var(--border); padding-left:16px; }
+    .topbar-back { margin-left:auto; font-size:13px; color:var(--blue); text-decoration:none; }
+    .topbar-back:hover { opacity:.8; }
 
-    /* ── 主体 ── */
-    .main { max-width: 1200px; margin: 0 auto; padding: 24px 24px 48px; }
+    /* 主体：左1/3 + 右2/3 */
+    .layout { display:flex; flex:1; overflow:hidden; }
 
-    /* ── 操作栏 ── */
-    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
-               flex-wrap: wrap; }
-    .toolbar-title { font-size: 18px; font-weight: 600; color: var(--text1); }
-    .date-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-    .date-tab { padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border);
-                background: var(--white); color: var(--text2); cursor: pointer;
-                font-size: 13px; transition: all .15s; }
-    .date-tab:hover { border-color: var(--blue); color: var(--blue); }
-    .date-tab.active { background: var(--blue); border-color: var(--blue);
-                       color: var(--white); font-weight: 500; }
+    /* 左侧面板 */
+    .left-panel { width:33.333%; border-right:1px solid var(--border);
+                  background:var(--white); display:flex; flex-direction:column;
+                  overflow-y:auto; flex-shrink:0; }
+    .panel-section { padding:16px; border-bottom:1px solid var(--border); }
+    .panel-section:last-child { border-bottom:none; }
+    .section-title { font-size:13px; font-weight:600; color:var(--text2);
+                     margin-bottom:12px; display:flex; align-items:center; gap:6px; }
 
-    /* ── 按钮 ── */
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;
-           border-radius: var(--radius); border: none; cursor: pointer; font-size: 14px;
-           font-weight: 500; transition: all .15s; }
-    .btn:disabled { opacity: .5; cursor: not-allowed; }
-    .btn-primary { background: var(--blue); color: var(--white); }
-    .btn-primary:hover:not(:disabled) { background: #0052D9; }
-    .btn-ghost { background: var(--white); color: var(--blue);
-                 border: 1px solid var(--blue); }
-    .btn-ghost:hover:not(:disabled) { background: var(--blue-lt); }
+    /* 筛选条件 */
+    .filter-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+    .filter-label { font-size:13px; color:var(--text2); white-space:nowrap; }
+    .filter-input { width:64px; height:32px; border:1px solid var(--border);
+                    border-radius:var(--radius); padding:0 8px; font-size:14px;
+                    color:var(--text1); outline:none; text-align:center; }
+    .filter-input:focus { border-color:var(--blue); box-shadow:0 0 0 2px var(--blue-lt); }
+    .filter-unit { font-size:13px; color:var(--text3); }
 
-    /* ── 统计卡片 ── */
-    .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
-                margin-bottom: 20px; }
-    .stat-card { background: var(--white); border-radius: var(--radius);
-                 padding: 16px 20px; border: 1px solid var(--border); }
-    .stat-label { font-size: 12px; color: var(--text3); margin-bottom: 6px; }
-    .stat-val { font-size: 24px; font-weight: 700; color: var(--text1); }
-    .stat-val.green { color: var(--green); }
-    .stat-val.red   { color: var(--red); }
-    .stat-val.blue  { color: var(--blue); }
+    /* 日期选择 */
+    .date-list { display:flex; flex-direction:column; gap:4px; }
+    .date-item { padding:8px 12px; border-radius:var(--radius); cursor:pointer;
+                 font-size:13px; color:var(--text2); transition:all .15s;
+                 border:1px solid transparent; }
+    .date-item:hover { background:var(--bg); color:var(--blue); }
+    .date-item.active { background:var(--blue-lt); color:var(--blue);
+                        border-color:var(--blue); font-weight:600; }
 
-    /* ── 日志面板 ── */
-    .log-card { background: #1D2129; border-radius: var(--radius); padding: 16px;
-                font-family: "SF Mono", "Fira Code", monospace; font-size: 12px;
-                color: #C9CDD4; max-height: 240px; overflow-y: auto;
-                white-space: pre-wrap; word-break: break-all; margin-bottom: 20px; }
-    .log-done { color: #00B42A; } .log-err { color: #F53F3F; }
+    /* 统计 */
+    .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .stat-card { background:var(--bg); border-radius:var(--radius); padding:10px 12px; }
+    .stat-label { font-size:11px; color:var(--text3); margin-bottom:4px; }
+    .stat-val { font-size:18px; font-weight:700; color:var(--text1); }
+    .stat-val.blue  { color:var(--blue); }
+    .stat-val.green { color:var(--green); }
+    .stat-val.red   { color:var(--red); }
 
-    /* ── 表格卡片 ── */
-    .table-card { background: var(--white); border-radius: var(--radius);
-                  border: 1px solid var(--border); overflow: hidden; }
-    .table-card-header { padding: 16px 20px; border-bottom: 1px solid var(--border);
-                         display: flex; align-items: center; justify-content: space-between; }
-    .table-card-title { font-size: 15px; font-weight: 600; color: var(--text1); }
-    .table-count { font-size: 13px; color: var(--text3); }
+    /* 日志 */
+    .log-box { background:#1D2129; border-radius:var(--radius); padding:12px;
+               font-family:"SF Mono","Fira Code",monospace; font-size:11px;
+               color:#C9CDD4; max-height:220px; overflow-y:auto;
+               white-space:pre-wrap; word-break:break-all; }
+    .log-done { color:#00B42A; } .log-err { color:#F53F3F; }
 
-    table { width: 100%; border-collapse: collapse; font-size: 14px; }
-    thead th { background: #F7F8FA; color: var(--text2); font-weight: 500;
-               padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border);
-               white-space: nowrap; }
-    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
-    tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: #F7F8FA; }
-    tbody td { padding: 12px 16px; white-space: nowrap; color: var(--text1); }
+    /* 按钮 */
+    .btn { display:inline-flex; align-items:center; gap:6px; padding:7px 16px;
+           border-radius:var(--radius); border:none; cursor:pointer; font-size:13px;
+           font-weight:500; transition:all .15s; }
+    .btn:disabled { opacity:.5; cursor:not-allowed; }
+    .btn-primary { background:var(--blue); color:var(--white); width:100%; justify-content:center; }
+    .btn-primary:hover:not(:disabled) { background:#0052D9; }
+    .btn-ghost { background:var(--white); color:var(--blue); border:1px solid var(--blue); }
+    .btn-ghost:hover:not(:disabled) { background:var(--blue-lt); }
 
-    .code-cell { font-family: "SF Mono", monospace; font-weight: 600;
-                 color: var(--blue); font-size: 13px; cursor: pointer;
-                 text-decoration: underline dotted; }
+    /* 右侧内容 */
+    .right-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; }
 
-    /* ── K线浮层 ── */
-    #kline-popup { position: fixed; z-index: 500; background: var(--white);
-                   border: 1px solid var(--border); border-radius: var(--radius);
-                   box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 10px;
-                   display: none; pointer-events: none; }
-    #kline-popup .kline-title { font-size: 12px; color: var(--text2);
-                                margin-bottom: 6px; font-weight: 500; }
-    #kline-popup img { display: block; width: 360px; height: auto;
-                       border-radius: 4px; }
-    .pct-pos { color: var(--red); font-weight: 600; }
-    .pct-neg { color: var(--green); font-weight: 600; }
-    .pct-zero { color: var(--text3); }
+    /* 表格区 */
+    .table-wrap { flex:1; overflow-y:auto; }
+    .table-header { padding:14px 20px; border-bottom:1px solid var(--border);
+                    display:flex; align-items:center; justify-content:space-between;
+                    background:var(--white); flex-shrink:0; }
+    .table-title { font-size:15px; font-weight:600; color:var(--text1); }
+    .table-count { font-size:13px; color:var(--text3); }
 
-    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px;
-           font-size: 12px; font-weight: 500; }
-    .tag-up   { background: #FFF0ED; color: var(--red); }
-    .tag-down { background: #E8FFEA; color: var(--green); }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    thead th { background:#F7F8FA; color:var(--text2); font-weight:500;
+               padding:10px 14px; text-align:left; border-bottom:1px solid var(--border);
+               white-space:nowrap; position:sticky; top:0; z-index:1; }
+    tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
+    tbody tr:last-child { border-bottom:none; }
+    tbody tr:hover { background:#F7F8FA; }
+    tbody td { padding:10px 14px; white-space:nowrap; }
 
-    .empty-state { padding: 64px 0; text-align: center; color: var(--text3); }
-    .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
-    .empty-state p { font-size: 14px; }
+    .code-cell { font-family:"SF Mono",monospace; font-weight:600; color:var(--blue);
+                 font-size:13px; cursor:pointer; text-decoration:underline dotted; }
+    .pct-pos { color:var(--red); font-weight:600; }
+    .pct-neg { color:var(--green); font-weight:600; }
+    .pct-zero { color:var(--text3); }
 
-    /* ── 筛选条件卡片 ── */
-    .filter-card { background: var(--white); border-radius: var(--radius);
-                   border: 1px solid var(--border); padding: 16px 20px;
-                   margin-bottom: 20px; display: flex; align-items: center;
-                   gap: 24px; flex-wrap: wrap; }
-    .filter-card .filter-label { font-size: 13px; color: var(--text2); font-weight: 500; }
-    .filter-group { display: flex; align-items: center; gap: 8px; }
-    .filter-input { width: 72px; height: 34px; border: 1px solid var(--border);
-                    border-radius: var(--radius); padding: 0 10px; font-size: 14px;
-                    color: var(--text1); outline: none; text-align: center;
-                    transition: border-color .15s; }
-    .filter-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue-lt); }
-    .filter-unit { font-size: 13px; color: var(--text3); }
-    .filter-hint { font-size: 12px; color: var(--text3); margin-left: 4px; }
-    #toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
-             background: rgba(29,33,41,.9); color: #fff; padding: 10px 20px;
-             border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity .3s;
-             pointer-events: none; z-index: 999; white-space: nowrap; }
-    #toast.show { opacity: 1; }
+    /* 分页 */
+    .pagination { padding:12px 20px; border-top:1px solid var(--border);
+                  display:flex; align-items:center; justify-content:space-between;
+                  background:var(--white); flex-shrink:0; }
+    .page-info { font-size:13px; color:var(--text3); }
+    .page-btns { display:flex; gap:4px; }
+    .page-btn { width:32px; height:32px; border-radius:var(--radius);
+                border:1px solid var(--border); background:var(--white);
+                color:var(--text2); cursor:pointer; font-size:13px;
+                display:flex; align-items:center; justify-content:center;
+                transition:all .15s; }
+    .page-btn:hover { border-color:var(--blue); color:var(--blue); }
+    .page-btn.active { background:var(--blue); border-color:var(--blue);
+                       color:var(--white); font-weight:600; }
+    .page-btn:disabled { opacity:.4; cursor:not-allowed; }
 
-    @media (max-width: 768px) {
-      .stat-row { grid-template-columns: repeat(2, 1fr); }
-      .main { padding: 16px; }
-    }
+    .empty-state { padding:64px 0; text-align:center; color:var(--text3); }
+    .empty-state .icon { font-size:36px; margin-bottom:10px; }
+    .empty-state p { font-size:14px; }
+
+    /* K线浮层 */
+    #kline-popup { position:fixed; z-index:500; background:var(--white);
+                   border:1px solid var(--border); border-radius:var(--radius);
+                   box-shadow:0 8px 24px rgba(0,0,0,.12); padding:10px;
+                   display:none; pointer-events:none; }
+    #kline-popup .kline-title { font-size:12px; color:var(--text2);
+                                margin-bottom:6px; font-weight:500; }
+    #kline-popup img { display:block; width:380px; height:auto; border-radius:4px; }
+
+    /* Toast */
+    #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+             background:rgba(29,33,41,.9); color:#fff; padding:8px 18px;
+             border-radius:20px; font-size:13px; opacity:0; transition:opacity .3s;
+             pointer-events:none; z-index:999; white-space:nowrap; }
+    #toast.show { opacity:1; }
   </style>
 </head>
 <body>
@@ -158,67 +151,79 @@
   <a class="topbar-back" href="/">← 返回主页</a>
 </div>
 
-<div class="main">
+<div class="layout">
 
-  <!-- 筛选条件 -->
-  <div class="filter-card">
-    <span class="filter-label">⚙️ 筛选条件</span>
-    <div class="filter-group">
-      <span class="filter-unit">近</span>
-      <input class="filter-input" type="number" id="input-lookback" value="10" min="1" max="250" />
-      <span class="filter-unit">个交易日新低</span>
-      <span class="filter-hint">（T-1日最低价 == 近N日最低价）</span>
+  <!-- 左侧面板 -->
+  <div class="left-panel">
+
+    <!-- 筛选条件 -->
+    <div class="panel-section">
+      <div class="section-title">⚙️ 筛选条件</div>
+      <div class="filter-row">
+        <span class="filter-label">近</span>
+        <input class="filter-input" type="number" id="input-lookback" value="10" min="1" max="250" />
+        <span class="filter-unit">个交易日新低</span>
+      </div>
+      <button class="btn btn-primary" id="btn-run" onclick="runScan()" style="margin-top:4px">▶ 立即扫描</button>
     </div>
+
+    <!-- 日期选择 -->
+    <div class="panel-section">
+      <div class="section-title" style="justify-content:space-between">
+        📅 历史日期
+        <span style="font-size:12px;font-weight:400;color:var(--text3);cursor:pointer" onclick="loadDates()">↻ 刷新</span>
+      </div>
+      <div class="date-list" id="date-list">
+        <div style="color:var(--text3);font-size:13px">加载中...</div>
+      </div>
+    </div>
+
+    <!-- 统计 -->
+    <div class="panel-section" id="stat-section" style="display:none">
+      <div class="section-title">📊 本次统计</div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">筛选股票数</div>
+          <div class="stat-val blue" id="stat-total">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">T最低高于T-1</div>
+          <div class="stat-val green" id="stat-t-above">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">平均偏离(%)</div>
+          <div class="stat-val" id="stat-avg-pct">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">回看天数</div>
+          <div class="stat-val" id="stat-lookback">--</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 扫描日志 -->
+    <div class="panel-section" id="log-section" style="display:none">
+      <div class="section-title">📋 扫描日志</div>
+      <div class="log-box" id="log-panel"></div>
+    </div>
+
   </div>
 
-  <!-- 操作栏 -->
-  <div class="toolbar">
-    <span class="toolbar-title">筛选结果</span>
-    <div class="date-tabs" id="date-tabs">
-      <span style="color:var(--text3);font-size:13px">加载中...</span>
-    </div>
-    <div style="margin-left:auto;display:flex;gap:8px">
-      <button class="btn btn-ghost" id="btn-refresh" onclick="loadDates()">↻ 刷新</button>
-      <button class="btn btn-primary" id="btn-run" onclick="runScan()">▶ 立即扫描</button>
-    </div>
-  </div>
-
-  <!-- 统计卡片 -->
-  <div class="stat-row" id="stat-row" style="display:none">
-    <div class="stat-card">
-      <div class="stat-label">筛选股票数</div>
-      <div class="stat-val blue" id="stat-total">--</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">平均当前vsT-1最低(%)</div>
-      <div class="stat-val" id="stat-avg-pct">--</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">T最低高于T-1最低</div>
-      <div class="stat-val green" id="stat-t-above">--</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">回看天数</div>
-      <div class="stat-val" id="stat-lookback">--</div>
-    </div>
-  </div>
-
-  <!-- 日志面板 -->
-  <div id="log-wrap" style="display:none">
-    <div class="log-card" id="log-panel"></div>
-  </div>
-
-  <!-- 结果表格 -->
-  <div class="table-card">
-    <div class="table-card-header">
-      <span class="table-card-title">第四阶段筛选结果</span>
+  <!-- 右侧结果 -->
+  <div class="right-panel">
+    <div class="table-header">
+      <span class="table-title">筛选结果</span>
       <span class="table-count" id="table-count"></span>
     </div>
-    <div id="table-wrap">
+    <div class="table-wrap" id="table-wrap">
       <div class="empty-state">
         <div class="icon">📋</div>
-        <p>请选择日期查看筛选结果</p>
+        <p>请选择左侧日期查看筛选结果</p>
       </div>
+    </div>
+    <div class="pagination" id="pagination" style="display:none">
+      <span class="page-info" id="page-info"></span>
+      <div class="page-btns" id="page-btns"></div>
     </div>
   </div>
 
@@ -226,115 +231,147 @@
 
 <div id="kline-popup">
   <div class="kline-title" id="kline-title"></div>
-  <img id="kline-img" src="" alt="日线走势图" />
+  <img id="kline-img" src="" alt="日K线图" />
 </div>
-
 <div id="toast"></div>
 
 <script>
-let currentDate = null;
+const PAGE_SIZE = 20;
+let allRows = [];
+let currentPage = 1;
 
-// ── 日期栏 ──
+// ── 日期列表 ──
 async function loadDates() {
-  const res = await fetch('/api/month_low/dates').then(r => r.json());
-  const tabs = document.getElementById('date-tabs');
-  tabs.innerHTML = '';
-  if (!res.length) {
-    tabs.innerHTML = '<span style="color:var(--text3);font-size:13px">暂无数据，请先扫描</span>';
+  const dates = await fetch('/api/month_low/dates').then(r => r.json());
+  const list = document.getElementById('date-list');
+  list.innerHTML = '';
+  if (!dates.length) {
+    list.innerHTML = '<div style="color:var(--text3);font-size:13px">暂无数据，请先扫描</div>';
     return;
   }
-  res.forEach((d, i) => {
-    const btn = document.createElement('button');
-    btn.className = 'date-tab' + (i === 0 ? ' active' : '');
-    btn.textContent = d;
-    btn.onclick = () => selectDate(d, btn);
-    tabs.appendChild(btn);
+  dates.forEach((d, i) => {
+    const el = document.createElement('div');
+    el.className = 'date-item' + (i === 0 ? ' active' : '');
+    el.textContent = d;
+    el.onclick = () => selectDate(d, el);
+    list.appendChild(el);
   });
-  selectDate(res[0], tabs.querySelector('.date-tab'));
+  selectDate(dates[0], list.querySelector('.date-item'));
 }
 
-async function selectDate(d, btn) {
-  currentDate = d;
-  document.querySelectorAll('.date-tab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  await loadResults(d);
-}
-
-// ── 结果表格 ──
-async function loadResults(d) {
+async function selectDate(d, el) {
+  document.querySelectorAll('.date-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
   const rows = await fetch('/api/month_low/' + d).then(r => r.json());
-  renderTable(rows);
+  allRows = rows;
+  currentPage = 1;
   renderStats(rows);
+  renderPage();
 }
 
-function pctClass(v) {
-  if (v > 0) return 'pct-pos';
-  if (v < 0) return 'pct-neg';
-  return 'pct-zero';
-}
+// ── 分页渲染 ──
+function renderPage() {
+  const total = allRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = allRows.slice(start, start + PAGE_SIZE);
 
-function renderTable(rows) {
   const wrap = document.getElementById('table-wrap');
   const cnt  = document.getElementById('table-count');
-  if (!rows.length) {
+  cnt.textContent = total ? '共 ' + total + ' 只' : '';
+
+  if (!total) {
     wrap.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>该日期暂无筛选数据</p></div>';
-    cnt.textContent = '';
+    document.getElementById('pagination').style.display = 'none';
     return;
   }
-  cnt.textContent = '共 ' + rows.length + ' 只';
+
   let html = '<table><thead><tr>' +
     '<th>#</th><th>代码</th><th>名称</th>' +
     '<th>当前价</th><th>T最低</th><th>T-1最低</th>' +
-    '<th>当前vsT-1最低(%)</th><th>T最低vsT-1最低(%)</th><th>回看天数</th>' +
+    '<th>当前vsT-1(%)</th><th>T最低vsT-1(%)</th><th>回看天数</th>' +
     '</tr></thead><tbody>';
-  rows.forEach((r, i) => {
+
+  pageRows.forEach((r, i) => {
+    const idx = start + i + 1;
     const p1 = Number(r.price_vs_t1_pct);
     const p2 = Number(r.t_low_vs_t1_pct);
     html += '<tr>' +
-      '<td style="color:var(--text3)">' + (i+1) + '</td>' +
-      '<td><span class="code-cell" onmouseenter="showKline(event,\'' + r.code + '\',\'' + (r.name||'') + '\')" onmouseleave="hideKline()">' + r.code + '</span></td>' +
-      '<td>' + (r.name || '-') + '</td>' +
+      '<td style="color:var(--text3)">' + idx + '</td>' +
+      '<td><span class="code-cell" onmouseenter="showKline(event,'' + r.code + '','' + (r.name||'') + '')" onmouseleave="hideKline()">' + r.code + '</span></td>' +
+      '<td>' + (r.name||'-') + '</td>' +
       '<td><strong>' + Number(r.current_price).toFixed(2) + '</strong></td>' +
       '<td>' + Number(r.t_low).toFixed(2) + '</td>' +
       '<td>' + Number(r.t_1_low).toFixed(2) + '</td>' +
-      '<td><span class="' + pctClass(p1) + '">' + (p1 >= 0 ? '+' : '') + p1.toFixed(2) + '%</span></td>' +
-      '<td><span class="' + pctClass(p2) + '">' + (p2 >= 0 ? '+' : '') + p2.toFixed(2) + '%</span></td>' +
-      '<td><span style="color:var(--text3)">' + (r.lookback_days || '-') + '</span></td>' +
+      '<td><span class="' + pctClass(p1) + '">' + fmt(p1) + '</span></td>' +
+      '<td><span class="' + pctClass(p2) + '">' + fmt(p2) + '</span></td>' +
+      '<td style="color:var(--text3)">' + (r.lookback_days||'-') + '</td>' +
       '</tr>';
   });
   wrap.innerHTML = html + '</tbody></table>';
+
+  // 分页控件
+  const pg = document.getElementById('pagination');
+  const info = document.getElementById('page-info');
+  const btns = document.getElementById('page-btns');
+  pg.style.display = 'flex';
+  info.textContent = '第 ' + currentPage + ' / ' + totalPages + ' 页，共 ' + total + ' 条';
+
+  btns.innerHTML = '';
+  const addBtn = (label, page, disabled, active) => {
+    const b = document.createElement('button');
+    b.className = 'page-btn' + (active ? ' active' : '');
+    b.textContent = label;
+    b.disabled = disabled;
+    b.onclick = () => { currentPage = page; renderPage(); };
+    btns.appendChild(b);
+  };
+
+  addBtn('«', 1, currentPage === 1, false);
+  addBtn('‹', currentPage - 1, currentPage === 1, false);
+
+  // 页码窗口
+  let lo = Math.max(1, currentPage - 2);
+  let hi = Math.min(totalPages, lo + 4);
+  lo = Math.max(1, hi - 4);
+  for (let p = lo; p <= hi; p++) addBtn(p, p, false, p === currentPage);
+
+  addBtn('›', currentPage + 1, currentPage === totalPages, false);
+  addBtn('»', totalPages, currentPage === totalPages, false);
 }
 
+function pctClass(v) { return v > 0 ? 'pct-pos' : v < 0 ? 'pct-neg' : 'pct-zero'; }
+function fmt(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
+
 function renderStats(rows) {
-  const statRow = document.getElementById('stat-row');
-  if (!rows.length) { statRow.style.display = 'none'; return; }
-  statRow.style.display = 'grid';
+  const sec = document.getElementById('stat-section');
+  if (!rows.length) { sec.style.display = 'none'; return; }
+  sec.style.display = 'block';
   const total = rows.length;
-  const avgPct = (rows.reduce((s, r) => s + Number(r.price_vs_t1_pct), 0) / total).toFixed(2);
-  const tAbove = rows.filter(r => Number(r.t_low_vs_t1_pct) > 0).length;
-  const lookback = rows[0].lookback_days || '-';
+  const avg = (rows.reduce((s,r) => s + Number(r.price_vs_t1_pct), 0) / total).toFixed(2);
+  const above = rows.filter(r => Number(r.t_low_vs_t1_pct) > 0).length;
+  const lb = rows[0].lookback_days || '-';
   document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-t-above').textContent = above + ' 只';
   const avgEl = document.getElementById('stat-avg-pct');
-  avgEl.textContent = (avgPct >= 0 ? '+' : '') + avgPct + '%';
-  avgEl.className = 'stat-val ' + (avgPct > 0 ? 'red' : avgPct < 0 ? 'green' : '');
-  document.getElementById('stat-t-above').textContent = tAbove + ' 只';
-  document.getElementById('stat-lookback').textContent = lookback + ' 日';
+  avgEl.textContent = (avg >= 0 ? '+' : '') + avg + '%';
+  avgEl.className = 'stat-val ' + (avg > 0 ? 'red' : avg < 0 ? 'green' : '');
+  document.getElementById('stat-lookback').textContent = lb + ' 日';
 }
 
 // ── 扫描 ──
 async function runScan() {
   const lookback = parseInt(document.getElementById('input-lookback').value) || 10;
   if (lookback < 1 || lookback > 250) { toast('回看天数请填 1~250'); return; }
-
   const btn = document.getElementById('btn-run');
   btn.disabled = true; btn.textContent = '⏳ 扫描中...';
-  const wrap = document.getElementById('log-wrap');
-  const panel = document.getElementById('log-panel');
-  wrap.style.display = 'block'; panel.innerHTML = '';
+  const logSec = document.getElementById('log-section');
+  const panel  = document.getElementById('log-panel');
+  logSec.style.display = 'block'; panel.innerHTML = '';
 
   const data = await fetch('/api/month_low/run', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({lookback_days: lookback})
   }).then(r => r.json());
 
@@ -362,49 +399,32 @@ async function runScan() {
   es.onerror = () => { es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描'; };
 }
 
-function toast(msg) {
-  const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2000);
-}
-
 // ── K线浮层 ──
 function klineUrl(code) {
-  // 东方财富日K线图：沪市 nid=1.xxxxxx，深市 nid=0.xxxxxx
-  // imageType=k 为日线K线图
   const market = code.startsWith('6') ? '1' : '0';
-  return 'http://webquotepic.eastmoney.com/GetPic.aspx' +
-    '?nid=' + market + '.' + code +
-    '&imageType=k&token=44c9d251add88e27b65ed86506f6758a';
+  return 'http://webquotepic.eastmoney.com/GetPic.aspx?nid=' + market + '.' + code + '&imageType=k&token=44c9d251add88e27b65ed86506f6758a';
 }
-
 let _klineTimer = null;
 function showKline(e, code, name) {
   clearTimeout(_klineTimer);
   const popup = document.getElementById('kline-popup');
-  const img   = document.getElementById('kline-img');
-  const title = document.getElementById('kline-title');
-  title.textContent = code + (name ? '  ' + name : '') + '  日线走势';
-  img.src = klineUrl(code);
+  document.getElementById('kline-title').textContent = code + (name ? '  ' + name : '') + '  日K线';
+  document.getElementById('kline-img').src = klineUrl(code);
   popup.style.display = 'block';
-  _positionPopup(e, popup);
-}
-
-function hideKline() {
-  _klineTimer = setTimeout(() => {
-    document.getElementById('kline-popup').style.display = 'none';
-  }, 150);
-}
-
-function _positionPopup(e, popup) {
-  const margin = 12;
-  const pw = 380, ph = 220;  // 估算浮层尺寸
-  let x = e.clientX + margin;
-  let y = e.clientY + margin;
+  const margin = 12, pw = 400, ph = 230;
+  let x = e.clientX + margin, y = e.clientY + margin;
   if (x + pw > window.innerWidth)  x = e.clientX - pw - margin;
   if (y + ph > window.innerHeight) y = e.clientY - ph - margin;
-  popup.style.left = x + 'px';
-  popup.style.top  = y + 'px';
+  popup.style.left = x + 'px'; popup.style.top = y + 'px';
+}
+function hideKline() {
+  _klineTimer = setTimeout(() => { document.getElementById('kline-popup').style.display = 'none'; }, 150);
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
 }
 
 loadDates();
