@@ -23,6 +23,10 @@ from Ashare import get_price as _ashare_get_price
 # 全局写入锁：序列化数据库写入操作，避免死锁
 _db_write_lock = threading.Lock()
 
+# 最新交易日缓存（进程级，避免每只股票都查一次指数）
+_latest_trade_date_cache: str | None = None
+_latest_trade_date_lock = threading.Lock()
+
 # ============================================================
 # 数据库表初始化
 # ============================================================
@@ -240,9 +244,31 @@ def save_daily_data_to_cache(code: str, df: pd.DataFrame, name: str = ''):
 # ============================================================
 # 对外统一接口（兼容 Ashare.get_price 用法）
 # ============================================================
+def _latest_trade_date() -> str:
+    """
+    返回最近的交易日日期字符串（YYYY-MM-DD）。
+    结果在进程内缓存，多线程安全，只查一次指数接口。
+    """
+    global _latest_trade_date_cache
+    if _latest_trade_date_cache is not None:
+        return _latest_trade_date_cache
+    with _latest_trade_date_lock:
+        if _latest_trade_date_cache is not None:
+            return _latest_trade_date_cache
+        try:
+            df = _ashare_get_price('sh000001', frequency='1d', count=1)
+            if df is not None and not df.empty:
+                _latest_trade_date_cache = df.index[-1].strftime('%Y-%m-%d')
+                return _latest_trade_date_cache
+        except Exception:
+            pass
+        _latest_trade_date_cache = datetime.now().strftime('%Y-%m-%d')
+        return _latest_trade_date_cache
+
+
 def get_cached_price(code: str, end_date='', count=10, frequency='1d', fields=[]) -> pd.DataFrame:
     """
-    获取股票日线数据（优先本地缓存，缺失时自动调用 Ashare API 回源并写入缓存）
+    获取股票日线数据（优先本地缓存，缺失或数据不是最新时自动回源 API）
     用法与 Ashare.get_price() 完全一致。
     """
     # 规范化代码
@@ -254,7 +280,7 @@ def get_cached_price(code: str, end_date='', count=10, frequency='1d', fields=[]
     elif not xcode.startswith(('sh', 'sz')):
         xcode = ('sh' if xcode.startswith('6') else 'sz') + xcode
 
-    # 计算查询日期范围（多取 2 倍天数以覆盖非交易日）
+    # 计算查询日期范围
     if end_date:
         end_dt = pd.to_datetime(end_date) if isinstance(end_date, str) else end_date
     else:
@@ -266,24 +292,31 @@ def get_cached_price(code: str, end_date='', count=10, frequency='1d', fields=[]
 
     # ── 第一步：查本地缓存 ──
     df_cache = get_cached_daily_data(xcode, start_date_str, end_date_str)
+
+    # ── 第二步：判断缓存是否足够且是最新 ──
+    cache_ok = False
     if len(df_cache) >= count:
+        latest_trade = _latest_trade_date()
+        cache_latest = df_cache.index[-1].strftime('%Y-%m-%d')
+        cache_ok = (cache_latest >= latest_trade)
+
+    if cache_ok:
         return df_cache.tail(count)
 
-    # ── 第二步：缓存不足，调 Ashare API 回源 ──
+    # ── 第三步：缓存不足或不是最新，调 Ashare API 回源 ──
     try:
         df_api = _ashare_get_price(xcode, end_date=end_date, count=count * 2, frequency=frequency)
         if df_api is None or df_api.empty:
             return df_cache.tail(count) if not df_cache.empty else pd.DataFrame()
 
-        # 写入缓存（静默，不打印）
+        # 写入缓存（静默）
         save_daily_data_to_cache(xcode, df_api)
 
-        # 重新从缓存读取（保证数据一致性）
+        # 重新从缓存读取
         df_merged = get_cached_daily_data(xcode, start_date_str, end_date_str)
         if not df_merged.empty:
             return df_merged.tail(count)
         return df_api.tail(count)
 
-    except Exception as e:
-        # API 失败，降级返回现有缓存
+    except Exception:
         return df_cache.tail(count) if not df_cache.empty else pd.DataFrame()
