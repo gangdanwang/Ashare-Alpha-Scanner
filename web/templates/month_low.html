@@ -99,7 +99,18 @@
     tbody td { padding: 12px 16px; white-space: nowrap; color: var(--text1); }
 
     .code-cell { font-family: "SF Mono", monospace; font-weight: 600;
-                 color: var(--blue); font-size: 13px; }
+                 color: var(--blue); font-size: 13px; cursor: pointer;
+                 text-decoration: underline dotted; }
+
+    /* ── K线浮层 ── */
+    #kline-popup { position: fixed; z-index: 500; background: var(--white);
+                   border: 1px solid var(--border); border-radius: var(--radius);
+                   box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 10px;
+                   display: none; pointer-events: none; }
+    #kline-popup .kline-title { font-size: 12px; color: var(--text2);
+                                margin-bottom: 6px; font-weight: 500; }
+    #kline-popup img { display: block; width: 360px; height: auto;
+                       border-radius: 4px; }
     .pct-pos { color: var(--red); font-weight: 600; }
     .pct-neg { color: var(--green); font-weight: 600; }
     .pct-zero { color: var(--text3); }
@@ -213,6 +224,11 @@
 
 </div>
 
+<div id="kline-popup">
+  <div class="kline-title" id="kline-title"></div>
+  <img id="kline-img" src="" alt="日线走势图" />
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -276,7 +292,7 @@ function renderTable(rows) {
     const p2 = Number(r.t_low_vs_t1_pct);
     html += '<tr>' +
       '<td style="color:var(--text3)">' + (i+1) + '</td>' +
-      '<td><span class="code-cell">' + r.code + '</span></td>' +
+      '<td><span class="code-cell" onmouseenter="showKline(event,\'' + r.code + '\',\'' + (r.name||'') + '\')" onmouseleave="hideKline()">' + r.code + '</span></td>' +
       '<td>' + (r.name || '-') + '</td>' +
       '<td><strong>' + Number(r.current_price).toFixed(2) + '</strong></td>' +
       '<td>' + Number(r.t_low).toFixed(2) + '</td>' +
@@ -350,6 +366,45 @@ function toast(msg) {
   const el = document.getElementById('toast');
   el.textContent = msg; el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ── K线浮层 ──
+function klineUrl(code) {
+  // 东方财富日线图：沪市 nid=1.xxxxxx，深市 nid=0.xxxxxx
+  const market = code.startsWith('6') ? '1' : '0';
+  return 'http://webquotepic.eastmoney.com/GetPic.aspx' +
+    '?imageType=r&token=44c9d251add88e27b65ed86506f6758a' +
+    '&nid=' + market + '.' + code +
+    '&type=r&unitWidth=-6&ef=&formula=RSI&AT=1';
+}
+
+let _klineTimer = null;
+function showKline(e, code, name) {
+  clearTimeout(_klineTimer);
+  const popup = document.getElementById('kline-popup');
+  const img   = document.getElementById('kline-img');
+  const title = document.getElementById('kline-title');
+  title.textContent = code + (name ? '  ' + name : '') + '  日线走势';
+  img.src = klineUrl(code);
+  popup.style.display = 'block';
+  _positionPopup(e, popup);
+}
+
+function hideKline() {
+  _klineTimer = setTimeout(() => {
+    document.getElementById('kline-popup').style.display = 'none';
+  }, 150);
+}
+
+function _positionPopup(e, popup) {
+  const margin = 12;
+  const pw = 380, ph = 220;  // 估算浮层尺寸
+  let x = e.clientX + margin;
+  let y = e.clientY + margin;
+  if (x + pw > window.innerWidth)  x = e.clientX - pw - margin;
+  if (y + ph > window.innerHeight) y = e.clientY - ph - margin;
+  popup.style.left = x + 'px';
+  popup.style.top  = y + 'px';
 }
 
 loadDates();
