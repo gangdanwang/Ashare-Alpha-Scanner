@@ -315,23 +315,22 @@ def filter_by_name(codes: list[str]) -> list[str]:
 # ============================================================
 # 3️⃣ 缓存预热 + 单只股票筛选逻辑
 # ============================================================
-def _fetch_and_cache_one(code: str, count: int):
-    """拉取单只股票日线数据并写入缓存，供预热使用。"""
+def _fetch_one_for_warmup(code: str, count: int) -> tuple[str, object]:
+    """拉取单只股票日线数据，返回 (code, df)，供预热批量写入使用。"""
     try:
-        from stock_cache import save_daily_data_to_cache
         df = _ashare_get_price(code, frequency='1d', count=count)
-        if df is not None and not df.empty:
-            save_daily_data_to_cache(code, df)
+        return (code, df)
     except Exception:
-        pass
+        return (code, None)
 
 
 def _warm_up_cache(codes: list, lookback: int, workers: int = 100):
     """
-    批量预热日线缓存。
-    策略：只对缓存缺失或不是最新的股票发 HTTP 请求，已有最新缓存的直接跳过。
+    批量预热日线缓存（方案B：读写分离）。
+    第一步：100 并发 HTTP 拉取，结果存内存。
+    第二步：单线程批量写入数据库，彻底消除死锁。
     """
-    from stock_cache import get_cached_daily_data, _latest_trade_date, _is_trading_hours
+    from stock_cache import get_cached_daily_data, _latest_trade_date, _is_trading_hours, save_daily_data_to_cache
     from datetime import datetime, timedelta
 
     need_fetch = []
@@ -359,22 +358,42 @@ def _warm_up_cache(codes: list, lookback: int, workers: int = 100):
         print(f"✅ 缓存预热：全部 {len(codes)} 只已命中缓存，跳过 API 请求")
         return
 
-    print(f"📦 缓存预热：{len(codes)} 只中有 {total_need} 只需要更新，开始并发拉取...")
+    print(f"📦 缓存预热：{len(codes)} 只中有 {total_need} 只需要更新")
+
+    # ── 第一步：并发 HTTP 拉取，结果存内存 ──
+    print(f"  ① 并发拉取中（workers={workers}）...")
+    fetched = []   # [(code, df), ...]
     completed = 0
     start_t = datetime.now()
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(_fetch_and_cache_one, c, count): c for c in need_fetch}
+        futures = {ex.submit(_fetch_one_for_warmup, c, count): c for c in need_fetch}
         for f in as_completed(futures):
+            code, df = f.result()
+            if df is not None and not df.empty:
+                fetched.append((code, df))
             completed += 1
             elapsed = (datetime.now() - start_t).total_seconds()
             spd = completed / elapsed if elapsed > 0 else 0
             rem = max(total_need - completed, 0) / spd if spd > 0 else 0
-            print(f"\r  📦 预热进度: {completed}/{total_need} ({completed/total_need*100:.1f}%) "
+            print(f"\r     拉取进度: {completed}/{total_need} ({completed/total_need*100:.1f}%) "
                   f"速度: {spd:.0f}只/秒 剩余: {rem:.0f}秒", end="", flush=True)
 
     elapsed = (datetime.now() - start_t).total_seconds()
-    print(f"\n✅ 缓存预热完成（耗时 {elapsed:.1f}秒），第三阶段将直接读库")
+    print(f"\n  ① 拉取完成：{len(fetched)}/{total_need} 只成功（耗时 {elapsed:.1f}秒）")
+
+    # ── 第二步：单线程批量写入，彻底消除死锁 ──
+    print(f"  ② 批量写入缓存（单线程）...")
+    write_ok = 0
+    for i, (code, df) in enumerate(fetched):
+        save_daily_data_to_cache(code, df)
+        write_ok += 1
+        if (i + 1) % 100 == 0 or (i + 1) == len(fetched):
+            print(f"\r     写入进度: {i+1}/{len(fetched)} ({(i+1)/len(fetched)*100:.1f}%)",
+                  end="", flush=True)
+
+    elapsed_total = (datetime.now() - start_t).total_seconds()
+    print(f"\n✅ 缓存预热完成：写入 {write_ok} 只（总耗时 {elapsed_total:.1f}秒），第三阶段将直接读库")
 
 
 def _ashare_get_price(code, frequency='1d', count=10):
