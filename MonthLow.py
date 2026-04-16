@@ -92,8 +92,8 @@ CONFIG = {
         "phase1_batch_size": 500,
         # 第二阶段：获取股票名称并发数
         "name_workers": 20,
-        # 第三阶段：筛选低点并发数
-        "screen_workers": 30,
+        # 第三阶段：筛选低点并发数（日线接口可高并发）
+        "screen_workers": 100,
         # 每批查询股票数量
         "batch_size": 100,
         # 请求间隔（秒）
@@ -542,28 +542,22 @@ def pick_month_low_stocks():
     print(f"📋 筛选条件：T-1日最低价 == 近{lookback}日最低价（创近{lookback}日新低）")
 
     perf = CONFIG["performance"]
-    batch_size = int(perf["batch_size"])
-    batches = [stocks[i:i + batch_size] for i in range(0, len(stocks), batch_size)]
 
     results = []
     total = len(stocks)
     start_time = datetime.now()
 
-    def process_batch(batch):
-        batch_results = []
-        for code in batch:
-            result = check_month_low(code)
-            if result:
-                batch_results.append(result)
-        return batch_results
+    def process_single(code):
+        return check_month_low(code)
 
     completed = 0
     with ThreadPoolExecutor(max_workers=int(perf["screen_workers"])) as executor:
-        futures = [executor.submit(process_batch, batch) for batch in batches]
+        futures = {executor.submit(process_single, code): code for code in stocks}
         for future in as_completed(futures):
-            batch_results = future.result()
-            results.extend(batch_results)
-            completed += batch_size
+            result = future.result()
+            if result:
+                results.append(result)
+            completed += 1
             elapsed = (datetime.now() - start_time).total_seconds()
             avg_speed = completed / elapsed if elapsed > 0 else 0
             remain = max(total - completed, 0) / avg_speed if avg_speed > 0 else 0
