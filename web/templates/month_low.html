@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MonthLow · 近N日低点选股</title>
+  <style>
+    :root {
+      --blue:    #1664FF;
+      --blue-lt: #E8F0FF;
+      --green:   #00B42A;
+      --red:     #F53F3F;
+      --orange:  #FF7D00;
+      --text1:   #1D2129;
+      --text2:   #4E5969;
+      --text3:   #86909C;
+      --border:  #E5E6EB;
+      --bg:      #F2F3F5;
+      --white:   #FFFFFF;
+      --radius:  8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+           background: var(--bg); color: var(--text1); min-height: 100vh; }
+
+    /* ── 顶栏 ── */
+    .topbar { background: var(--white); border-bottom: 1px solid var(--border);
+              padding: 0 24px; height: 56px; display: flex; align-items: center;
+              gap: 16px; position: sticky; top: 0; z-index: 100;
+              box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+    .topbar-logo { font-size: 16px; font-weight: 700; color: var(--blue);
+                   display: flex; align-items: center; gap: 8px; }
+    .topbar-logo span { font-size: 20px; }
+    .topbar-sub { font-size: 13px; color: var(--text3); border-left: 1px solid var(--border);
+                  padding-left: 16px; }
+    .topbar-back { margin-left: auto; font-size: 13px; color: var(--blue);
+                   text-decoration: none; display: flex; align-items: center; gap: 4px; }
+    .topbar-back:hover { opacity: .8; }
+
+    /* ── 主体 ── */
+    .main { max-width: 1200px; margin: 0 auto; padding: 24px 24px 48px; }
+
+    /* ── 操作栏 ── */
+    .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+               flex-wrap: wrap; }
+    .toolbar-title { font-size: 18px; font-weight: 600; color: var(--text1); }
+    .date-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .date-tab { padding: 5px 14px; border-radius: 20px; border: 1px solid var(--border);
+                background: var(--white); color: var(--text2); cursor: pointer;
+                font-size: 13px; transition: all .15s; }
+    .date-tab:hover { border-color: var(--blue); color: var(--blue); }
+    .date-tab.active { background: var(--blue); border-color: var(--blue);
+                       color: var(--white); font-weight: 500; }
+
+    /* ── 按钮 ── */
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px;
+           border-radius: var(--radius); border: none; cursor: pointer; font-size: 14px;
+           font-weight: 500; transition: all .15s; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-primary { background: var(--blue); color: var(--white); }
+    .btn-primary:hover:not(:disabled) { background: #0052D9; }
+    .btn-ghost { background: var(--white); color: var(--blue);
+                 border: 1px solid var(--blue); }
+    .btn-ghost:hover:not(:disabled) { background: var(--blue-lt); }
+
+    /* ── 统计卡片 ── */
+    .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+                margin-bottom: 20px; }
+    .stat-card { background: var(--white); border-radius: var(--radius);
+                 padding: 16px 20px; border: 1px solid var(--border); }
+    .stat-label { font-size: 12px; color: var(--text3); margin-bottom: 6px; }
+    .stat-val { font-size: 24px; font-weight: 700; color: var(--text1); }
+    .stat-val.green { color: var(--green); }
+    .stat-val.red   { color: var(--red); }
+    .stat-val.blue  { color: var(--blue); }
+
+    /* ── 日志面板 ── */
+    .log-card { background: #1D2129; border-radius: var(--radius); padding: 16px;
+                font-family: "SF Mono", "Fira Code", monospace; font-size: 12px;
+                color: #C9CDD4; max-height: 240px; overflow-y: auto;
+                white-space: pre-wrap; word-break: break-all; margin-bottom: 20px; }
+    .log-done { color: #00B42A; } .log-err { color: #F53F3F; }
+
+    /* ── 表格卡片 ── */
+    .table-card { background: var(--white); border-radius: var(--radius);
+                  border: 1px solid var(--border); overflow: hidden; }
+    .table-card-header { padding: 16px 20px; border-bottom: 1px solid var(--border);
+                         display: flex; align-items: center; justify-content: space-between; }
+    .table-card-title { font-size: 15px; font-weight: 600; color: var(--text1); }
+    .table-count { font-size: 13px; color: var(--text3); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead th { background: #F7F8FA; color: var(--text2); font-weight: 500;
+               padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border);
+               white-space: nowrap; }
+    tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #F7F8FA; }
+    tbody td { padding: 12px 16px; white-space: nowrap; color: var(--text1); }
+
+    .code-cell { font-family: "SF Mono", monospace; font-weight: 600;
+                 color: var(--blue); font-size: 13px; }
+    .pct-pos { color: var(--red); font-weight: 600; }
+    .pct-neg { color: var(--green); font-weight: 600; }
+    .pct-zero { color: var(--text3); }
+
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px;
+           font-size: 12px; font-weight: 500; }
+    .tag-up   { background: #FFF0ED; color: var(--red); }
+    .tag-down { background: #E8FFEA; color: var(--green); }
+
+    .empty-state { padding: 64px 0; text-align: center; color: var(--text3); }
+    .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+    .empty-state p { font-size: 14px; }
+
+    /* ── Toast ── */
+    #toast { position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+             background: rgba(29,33,41,.9); color: #fff; padding: 10px 20px;
+             border-radius: 20px; font-size: 14px; opacity: 0; transition: opacity .3s;
+             pointer-events: none; z-index: 999; white-space: nowrap; }
+    #toast.show { opacity: 1; }
+
+    @media (max-width: 768px) {
+      .stat-row { grid-template-columns: repeat(2, 1fr); }
+      .main { padding: 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo"><span>📉</span> MonthLow</div>
+  <div class="topbar-sub">近N日低点反弹选股</div>
+  <a class="topbar-back" href="/">← 返回主页</a>
+</div>
+
+<div class="main">
+
+  <!-- 操作栏 -->
+  <div class="toolbar">
+    <span class="toolbar-title">筛选结果</span>
+    <div class="date-tabs" id="date-tabs">
+      <span style="color:var(--text3);font-size:13px">加载中...</span>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn btn-ghost" id="btn-refresh" onclick="loadDates()">↻ 刷新</button>
+      <button class="btn btn-primary" id="btn-run" onclick="runScan()">▶ 立即扫描</button>
+    </div>
+  </div>
+
+  <!-- 统计卡片 -->
+  <div class="stat-row" id="stat-row" style="display:none">
+    <div class="stat-card">
+      <div class="stat-label">筛选股票数</div>
+      <div class="stat-val blue" id="stat-total">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">平均当前vsT-1最低(%)</div>
+      <div class="stat-val" id="stat-avg-pct">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">T最低高于T-1最低</div>
+      <div class="stat-val green" id="stat-t-above">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">回看天数</div>
+      <div class="stat-val" id="stat-lookback">--</div>
+    </div>
+  </div>
+
+  <!-- 日志面板 -->
+  <div id="log-wrap" style="display:none">
+    <div class="log-card" id="log-panel"></div>
+  </div>
+
+  <!-- 结果表格 -->
+  <div class="table-card">
+    <div class="table-card-header">
+      <span class="table-card-title">第四阶段筛选结果</span>
+      <span class="table-count" id="table-count"></span>
+    </div>
+    <div id="table-wrap">
+      <div class="empty-state">
+        <div class="icon">📋</div>
+        <p>请选择日期查看筛选结果</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+let currentDate = null;
+
+// ── 日期栏 ──
+async function loadDates() {
+  const res = await fetch('/api/month_low/dates').then(r => r.json());
+  const tabs = document.getElementById('date-tabs');
+  tabs.innerHTML = '';
+  if (!res.length) {
+    tabs.innerHTML = '<span style="color:var(--text3);font-size:13px">暂无数据，请先扫描</span>';
+    return;
+  }
+  res.forEach((d, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'date-tab' + (i === 0 ? ' active' : '');
+    btn.textContent = d;
+    btn.onclick = () => selectDate(d, btn);
+    tabs.appendChild(btn);
+  });
+  selectDate(res[0], tabs.querySelector('.date-tab'));
+}
+
+async function selectDate(d, btn) {
+  currentDate = d;
+  document.querySelectorAll('.date-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  await loadResults(d);
+}
+
+// ── 结果表格 ──
+async function loadResults(d) {
+  const rows = await fetch('/api/month_low/' + d).then(r => r.json());
+  renderTable(rows);
+  renderStats(rows);
+}
+
+function pctClass(v) {
+  if (v > 0) return 'pct-pos';
+  if (v < 0) return 'pct-neg';
+  return 'pct-zero';
+}
+
+function renderTable(rows) {
+  const wrap = document.getElementById('table-wrap');
+  const cnt  = document.getElementById('table-count');
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>该日期暂无筛选数据</p></div>';
+    cnt.textContent = '';
+    return;
+  }
+  cnt.textContent = '共 ' + rows.length + ' 只';
+  let html = '<table><thead><tr>' +
+    '<th>#</th><th>代码</th><th>名称</th>' +
+    '<th>当前价</th><th>T最低</th><th>T-1最低</th>' +
+    '<th>当前vsT-1最低(%)</th><th>T最低vsT-1最低(%)</th><th>回看天数</th>' +
+    '</tr></thead><tbody>';
+  rows.forEach((r, i) => {
+    const p1 = Number(r.price_vs_t1_pct);
+    const p2 = Number(r.t_low_vs_t1_pct);
+    html += '<tr>' +
+      '<td style="color:var(--text3)">' + (i+1) + '</td>' +
+      '<td><span class="code-cell">' + r.code + '</span></td>' +
+      '<td>' + (r.name || '-') + '</td>' +
+      '<td><strong>' + Number(r.current_price).toFixed(2) + '</strong></td>' +
+      '<td>' + Number(r.t_low).toFixed(2) + '</td>' +
+      '<td>' + Number(r.t_1_low).toFixed(2) + '</td>' +
+      '<td><span class="' + pctClass(p1) + '">' + (p1 >= 0 ? '+' : '') + p1.toFixed(2) + '%</span></td>' +
+      '<td><span class="' + pctClass(p2) + '">' + (p2 >= 0 ? '+' : '') + p2.toFixed(2) + '%</span></td>' +
+      '<td><span style="color:var(--text3)">' + (r.lookback_days || '-') + '</span></td>' +
+      '</tr>';
+  });
+  wrap.innerHTML = html + '</tbody></table>';
+}
+
+function renderStats(rows) {
+  const statRow = document.getElementById('stat-row');
+  if (!rows.length) { statRow.style.display = 'none'; return; }
+  statRow.style.display = 'grid';
+  const total = rows.length;
+  const avgPct = (rows.reduce((s, r) => s + Number(r.price_vs_t1_pct), 0) / total).toFixed(2);
+  const tAbove = rows.filter(r => Number(r.t_low_vs_t1_pct) > 0).length;
+  const lookback = rows[0].lookback_days || '-';
+  document.getElementById('stat-total').textContent = total;
+  const avgEl = document.getElementById('stat-avg-pct');
+  avgEl.textContent = (avgPct >= 0 ? '+' : '') + avgPct + '%';
+  avgEl.className = 'stat-val ' + (avgPct > 0 ? 'red' : avgPct < 0 ? 'green' : '');
+  document.getElementById('stat-t-above').textContent = tAbove + ' 只';
+  document.getElementById('stat-lookback').textContent = lookback + ' 日';
+}
+
+// ── 扫描 ──
+async function runScan() {
+  const btn = document.getElementById('btn-run');
+  btn.disabled = true; btn.textContent = '⏳ 扫描中...';
+  const wrap = document.getElementById('log-wrap');
+  const panel = document.getElementById('log-panel');
+  wrap.style.display = 'block'; panel.innerHTML = '';
+
+  const data = await fetch('/api/month_low/run', { method: 'POST' }).then(r => r.json());
+  if (!data.ok) {
+    panel.innerHTML = '<span class="log-err">' + data.msg + '</span>';
+    btn.disabled = false; btn.textContent = '▶ 立即扫描'; return;
+  }
+
+  const es = new EventSource('/api/month_low/log');
+  es.onmessage = (e) => {
+    const line = e.data;
+    if (line === '__START__' || line === '__HEARTBEAT__') return;
+    if (line.startsWith('__DONE__')) {
+      const code = line.split(':')[1];
+      const el = document.createElement('div');
+      el.className = code === '0' ? 'log-done' : 'log-err';
+      el.textContent = code === '0' ? '✅ 扫描完成' : '❌ 扫描异常退出';
+      panel.appendChild(el); panel.scrollTop = panel.scrollHeight;
+      es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描';
+      loadDates(); return;
+    }
+    const el = document.createElement('div');
+    el.textContent = line; panel.appendChild(el); panel.scrollTop = panel.scrollHeight;
+  };
+  es.onerror = () => { es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描'; };
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+loadDates();
+</script>
+</body>
+</html>

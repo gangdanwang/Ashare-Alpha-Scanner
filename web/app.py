@@ -6,9 +6,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from flask import Flask, jsonify, request, render_template, Response
 from datetime import date
-from db import get_scan_results, update_selection, insert_mock_trades, get_mock_trades, get_recent_dates
+from db import get_scan_results, update_selection, insert_mock_trades, get_mock_trades, get_recent_dates, \
+               get_month_low_results, get_month_low_dates
 
 app = Flask(__name__)
+
+# 启动时确保所有表已创建
+with app.app_context():
+    try:
+        from db import init_db
+        init_db()
+    except Exception as _e:
+        print(f'[warn] init_db: {_e}')
 
 # 全局扫描状态
 _scan_state = {
@@ -18,6 +27,13 @@ _scan_state = {
 
 PYTHON = sys.executable
 ALPHA2 = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Alpha2.py')
+MONTH_LOW = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'MonthLow.py')
+
+# MonthLow 扫描状态
+_ml_state = {
+    'running': False,
+    'log': queue.Queue(),
+}
 
 
 @app.route('/')
@@ -103,8 +119,69 @@ def api_market_overview():
                     'limit_up': lu, 'limit_down': ld, 'total': len(all_items)})
 
 
-@app.route('/api/scan_status')
-def api_scan_status():
+@app.route('/month_low')
+def month_low():
+    return render_template('month_low.html')
+
+
+@app.route('/api/month_low/dates')
+def api_ml_dates():
+    return jsonify(get_month_low_dates(20))
+
+
+@app.route('/api/month_low/<scan_date>')
+def api_ml_results(scan_date):
+    return jsonify(get_month_low_results(scan_date))
+
+
+@app.route('/api/month_low/run', methods=['POST'])
+def api_ml_run():
+    if _ml_state['running']:
+        return jsonify({'ok': False, 'msg': '扫描正在进行中'})
+
+    def _run():
+        _ml_state['running'] = True
+        while not _ml_state['log'].empty():
+            _ml_state['log'].get_nowait()
+        try:
+            proc = subprocess.Popen(
+                [PYTHON, MONTH_LOW],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+            for line in proc.stdout:
+                _ml_state['log'].put(line.rstrip())
+            proc.wait()
+            _ml_state['log'].put(f'__DONE__:{proc.returncode}')
+        except Exception as e:
+            _ml_state['log'].put(f'[错误] {e}')
+            _ml_state['log'].put('__DONE__:1')
+        finally:
+            _ml_state['running'] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/month_low/log')
+def api_ml_log():
+    def stream():
+        yield 'data: __START__\n\n'
+        while True:
+            try:
+                line = _ml_state['log'].get(timeout=30)
+                yield f'data: {line}\n\n'
+                if line.startswith('__DONE__'):
+                    break
+            except queue.Empty:
+                yield 'data: __HEARTBEAT__\n\n'
+    return Response(stream(), mimetype='text/event-stream')
+
+
+@app.route('/api/month_low/status')
+def api_ml_status():
+    return jsonify({'running': _ml_state['running']})
     return jsonify({'running': _scan_state['running']})
 
 
