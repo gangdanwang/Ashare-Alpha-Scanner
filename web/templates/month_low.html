@@ -299,7 +299,7 @@ function renderPage() {
     const p2 = Number(r.t_low_vs_t1_pct);
     html += '<tr>' +
       '<td style="color:var(--text3)">' + idx + '</td>' +
-      '<td><span class="code-cell" onmouseenter="showKline(event,'' + r.code + '','' + (r.name||'') + '')" onmouseleave="hideKline()">' + r.code + '</span></td>' +
+      '<td><span class="code-cell" data-code="' + r.code + '" data-name="' + (r.name||'') + '">' + r.code + '</span></td>' +
       '<td>' + (r.name||'-') + '</td>' +
       '<td><strong>' + Number(r.current_price).toFixed(2) + '</strong></td>' +
       '<td>' + Number(r.t_low).toFixed(2) + '</td>' +
@@ -399,7 +399,16 @@ async function runScan() {
   es.onerror = () => { es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描'; };
 }
 
-// ── K线浮层 ──
+// ── K线浮层（事件委托，避免内联引号问题）──
+document.addEventListener('mouseover', (e) => {
+  const el = e.target.closest('.code-cell');
+  if (!el) return;
+  showKline(e, el.dataset.code, el.dataset.name);
+});
+document.addEventListener('mouseout', (e) => {
+  if (e.target.closest('.code-cell')) hideKline();
+});
+
 function klineUrl(code) {
   const market = code.startsWith('6') ? '1' : '0';
   return 'http://webquotepic.eastmoney.com/GetPic.aspx?nid=' + market + '.' + code + '&imageType=k&token=44c9d251add88e27b65ed86506f6758a';
