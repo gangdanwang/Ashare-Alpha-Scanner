@@ -219,7 +219,7 @@ def save_daily_data_to_cache(code: str, df: pd.DataFrame, name: str = ''):
         print(f"⚠️  没有有效记录可保存: {code}")
         return 0
 
-    # 批量插入或更新
+    # 批量插入或更新（不加全局锁，依赖 ON DUPLICATE KEY 的原子性）
     sql = """
         INSERT INTO t_stock_daily (code, name, trade_date, open, close, high, low, volume)
         VALUES (%(code)s, %(name)s, %(trade_date)s, %(open)s, %(close)s, %(high)s, %(low)s, %(volume)s)
@@ -228,28 +228,21 @@ def save_daily_data_to_cache(code: str, df: pd.DataFrame, name: str = ''):
             low=VALUES(low), volume=VALUES(volume), updated_at=NOW()
     """
 
-    # 使用线程锁 + 重试机制：彻底避免死锁
-    max_retries = 5
+    max_retries = 3
     for attempt in range(max_retries):
         try:
-            # 获取写入锁，序列化数据库写入操作
-            with _db_write_lock:
-                with get_conn() as conn:
-                    with conn.cursor() as cur:
-                        cur.executemany(sql, records)
-            # 静默保存，不打印日志（减少输出噪音）
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.executemany(sql, records)
             return len(records)
         except Exception as e:
             error_code = getattr(e, 'args', [None])[0] if hasattr(e, 'args') else None
-            # 1213 = Deadlock, 1205 = Lock wait timeout
             if error_code in (1213, 1205) and attempt < max_retries - 1:
-                wait_time = 0.2 * (attempt + 1)  # 递增等待：0.2s, 0.4s, 0.6s, 0.8s
-                time.sleep(wait_time)
+                time.sleep(0.1 * (attempt + 1))
                 continue
-            # 只在最终失败时打印错误
             print(f"⚠️  数据库保存失败 ({clean_code}): {e}")
             return 0
-    
+
     return 0
 
 

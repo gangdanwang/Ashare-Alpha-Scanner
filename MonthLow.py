@@ -313,8 +313,76 @@ def filter_by_name(codes: list[str]) -> list[str]:
 
 
 # ============================================================
-# 3️⃣ 单只股票筛选逻辑
+# 3️⃣ 缓存预热 + 单只股票筛选逻辑
 # ============================================================
+def _fetch_and_cache_one(code: str, count: int):
+    """拉取单只股票日线数据并写入缓存，供预热使用。"""
+    try:
+        from stock_cache import save_daily_data_to_cache
+        df = _ashare_get_price(code, frequency='1d', count=count)
+        if df is not None and not df.empty:
+            save_daily_data_to_cache(code, df)
+    except Exception:
+        pass
+
+
+def _warm_up_cache(codes: list, lookback: int, workers: int = 100):
+    """
+    批量预热日线缓存。
+    策略：只对缓存缺失或不是最新的股票发 HTTP 请求，已有最新缓存的直接跳过。
+    """
+    from stock_cache import get_cached_daily_data, _latest_trade_date, _is_trading_hours
+    from datetime import datetime, timedelta
+
+    need_fetch = []
+    latest_trade = _latest_trade_date()
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    count = lookback + 10
+    start_str = (datetime.now() - timedelta(days=count * 2 + 10)).strftime('%Y-%m-%d')
+    end_str = datetime.now().strftime('%Y-%m-%d')
+    in_trading = _is_trading_hours()
+
+    for code in codes:
+        xcode = code if code.startswith(('sh', 'sz')) else ('sh' if code.startswith('6') else 'sz') + code
+        df_c = get_cached_daily_data(xcode, start_str, end_str)
+        if len(df_c) < count:
+            need_fetch.append(code)
+            continue
+        cache_latest = df_c.index[-1].strftime('%Y-%m-%d')
+        if cache_latest < latest_trade:
+            need_fetch.append(code)
+        elif cache_latest == today_str and in_trading:
+            need_fetch.append(code)
+
+    total_need = len(need_fetch)
+    if total_need == 0:
+        print(f"✅ 缓存预热：全部 {len(codes)} 只已命中缓存，跳过 API 请求")
+        return
+
+    print(f"📦 缓存预热：{len(codes)} 只中有 {total_need} 只需要更新，开始并发拉取...")
+    completed = 0
+    start_t = datetime.now()
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_fetch_and_cache_one, c, count): c for c in need_fetch}
+        for f in as_completed(futures):
+            completed += 1
+            elapsed = (datetime.now() - start_t).total_seconds()
+            spd = completed / elapsed if elapsed > 0 else 0
+            rem = max(total_need - completed, 0) / spd if spd > 0 else 0
+            print(f"\r  📦 预热进度: {completed}/{total_need} ({completed/total_need*100:.1f}%) "
+                  f"速度: {spd:.0f}只/秒 剩余: {rem:.0f}秒", end="", flush=True)
+
+    elapsed = (datetime.now() - start_t).total_seconds()
+    print(f"\n✅ 缓存预热完成（耗时 {elapsed:.1f}秒），第三阶段将直接读库")
+
+
+def _ashare_get_price(code, frequency='1d', count=10):
+    """直接调用 Ashare API，不经过缓存层。"""
+    from Ashare import get_price
+    return get_price(code, frequency=frequency, count=count)
+
+
 def check_month_low(code: str) -> dict | None:
     """
     检查T-1日股价是否创近N日新低。
@@ -544,6 +612,9 @@ def pick_month_low_stocks():
     print(f"📋 筛选条件：T-1日最低价 == 近{lookback}日最低价（创近{lookback}日新低）")
 
     perf = CONFIG["performance"]
+
+    # ── 预热缓存：批量拉取日线数据，避免第三阶段每只股票单独发 HTTP 请求 ──
+    _warm_up_cache(stocks, lookback, int(perf["screen_workers"]))
 
     results = []
     total = len(stocks)
