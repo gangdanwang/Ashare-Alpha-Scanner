@@ -59,15 +59,25 @@ def get_today_high_low(codes: list[str]) -> dict[str, dict]:
 def get_t1_high_low(code: str) -> dict | None:
     """
     通过 Ashare 日线接口获取 T-1 日最高价和最低价。
-    取倒数第 2 条（df.iloc[-2]），因为收盘后 df.iloc[-1] 已是今日。
+
+    判断逻辑：
+      - 日线最后一条日期 == 今日 → T-1 日取 iloc[-2]（盘中或收盘后）
+      - 日线最后一条日期 != 今日 → T-1 日取 iloc[-1]（盘前，今日K线未生成）
     """
+    from datetime import datetime
     try:
         df = get_price(code, frequency='1d', count=3)
         if df is None or len(df) < 2:
             return None
-        row = df.iloc[-2]   # T-1 日
+        today = datetime.now().date()
+        if df.index[-1].date() == today:
+            row = df.iloc[-2]   # 盘中或收盘后：最后一条是今日，取倒数第二
+            date_str = str(df.index[-2].date())
+        else:
+            row = df.iloc[-1]   # 盘前：最后一条就是上一交易日
+            date_str = str(df.index[-1].date())
         return {
-            'date':  str(df.index[-2].date()),
+            'date':  date_str,
             'high':  round(float(row['high']), 2),
             'low':   round(float(row['low']),  2),
             'close': round(float(row['close']), 2),

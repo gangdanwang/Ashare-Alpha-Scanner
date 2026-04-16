@@ -403,39 +403,47 @@ def check_month_low(code: str) -> dict | None:
     """
     第三阶段：检查 T-1 日是否创近 N 日新低（纯历史数据，不含今日实时）。
 
-    数据来源：本地缓存（预热后全部命中），缺失时回源 API。
-    筛选条件：T-1 日最低价 == 近 N 日最低价（允许 0.01 元误差）
-
-    返回 None 表示不满足条件，否则返回包含历史价格信息的字典。
+    T-1 日定位逻辑：
+      - 日线最后一条日期 == 今日 → T-1 日取 iloc[-2]（盘中或收盘后）
+      - 日线最后一条日期 != 今日 → T-1 日取 iloc[-1]（盘前，今日K线未生成）
     """
     try:
         cfg = CONFIG["filter"]
         lookback = int(cfg["lookback_days"])
 
-        # 只取历史日线数据（不含今日），count=lookback+5 足够
         df = _get_daily(code, frequency='1d', count=lookback + 5)
         if df is None or df.empty or len(df) < lookback + 1:
             return None
 
-        # T-1 日 = 最后一条（历史数据不含今日）
-        t_1_day   = df.iloc[-1]
+        # 定位 T-1 日
+        today = datetime.now().date()
+        if df.index[-1].date() == today:
+            # 盘中或收盘后：最后一条是今日，T-1 日是倒数第二条
+            t_1_idx = -2
+        else:
+            # 盘前：最后一条就是上一交易日
+            t_1_idx = -1
+
+        if abs(t_1_idx) > len(df):
+            return None
+
+        t_1_day   = df.iloc[t_1_idx]
         t_1_low   = float(t_1_day['low'])
         t_1_close = float(t_1_day['close'])
 
-        # 近 N 日最低价（含 T-1 日）
-        df_period  = df.tail(lookback)
+        # 近 N 日窗口（含 T-1 日）
+        df_period  = df.iloc[:t_1_idx if t_1_idx != -1 else len(df)].tail(lookback) if t_1_idx == -2 else df.tail(lookback)
         period_low = float(df_period['low'].min())
 
-        # 筛选条件：T-1 日最低价 ≈ 近 N 日最低价
         if abs(t_1_low - period_low) > 0.01:
             return None
 
         return {
-            'code':         code,
-            'name':         '',       # 第四阶段实时接口补充
-            't_1_low':      round(t_1_low, 2),
-            't_1_close':    round(t_1_close, 2),
-            'period_low':   round(period_low, 2),
+            'code':          code,
+            'name':          '',
+            't_1_low':       round(t_1_low, 2),
+            't_1_close':     round(t_1_close, 2),
+            'period_low':    round(period_low, 2),
             'lookback_days': lookback,
         }
 
