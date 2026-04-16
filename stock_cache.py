@@ -303,14 +303,8 @@ def get_cached_price(code: str, end_date='', count=10, frequency='1d', fields=[]
     if len(df_cache) >= count:
         latest_trade = _latest_trade_date()
         cache_latest = df_cache.index[-1].strftime('%Y-%m-%d')
-        today_str    = datetime.now().strftime('%Y-%m-%d')
-        if cache_latest >= latest_trade:
-            # 缓存日期已是最新交易日
-            if cache_latest == today_str and _is_trading_hours():
-                # 交易时间内，当天数据实时变动，强制回源
-                cache_ok = False
-            else:
-                cache_ok = True
+        # 缓存最新日期 >= 最近交易日即视为有效（历史数据不会变动）
+        cache_ok = (cache_latest >= latest_trade)
 
     if cache_ok:
         return df_cache.tail(count)

@@ -335,11 +335,9 @@ def _warm_up_cache(codes: list, lookback: int, workers: int = 100):
 
     need_fetch = []
     latest_trade = _latest_trade_date()
-    today_str = datetime.now().strftime('%Y-%m-%d')
     count = lookback + 10
     start_str = (datetime.now() - timedelta(days=count * 2 + 10)).strftime('%Y-%m-%d')
     end_str = datetime.now().strftime('%Y-%m-%d')
-    in_trading = _is_trading_hours()
 
     for code in codes:
         xcode = code if code.startswith(('sh', 'sz')) else ('sh' if code.startswith('6') else 'sz') + code
@@ -348,9 +346,8 @@ def _warm_up_cache(codes: list, lookback: int, workers: int = 100):
             need_fetch.append(code)
             continue
         cache_latest = df_c.index[-1].strftime('%Y-%m-%d')
+        # 只需历史数据完整（最新缓存日期 >= 最近交易日）
         if cache_latest < latest_trade:
-            need_fetch.append(code)
-        elif cache_latest == today_str and in_trading:
             need_fetch.append(code)
 
     total_need = len(need_fetch)
@@ -404,67 +401,43 @@ def _ashare_get_price(code, frequency='1d', count=10):
 
 def check_month_low(code: str) -> dict | None:
     """
-    检查T-1日股价是否创近N日新低。
-    返回包含T日和T-1日价格信息。
+    第三阶段：检查 T-1 日是否创近 N 日新低（纯历史数据，不含今日实时）。
 
-    筛选条件：
-      T-1日最低价 == 近N日最低价（即T-1日创了近N日新低）
+    数据来源：本地缓存（预热后全部命中），缺失时回源 API。
+    筛选条件：T-1 日最低价 == 近 N 日最低价（允许 0.01 元误差）
 
-    参数：
-      code: 股票代码，格式为 'sz000001' 或 'sh600000'
-
-    返回：
-      dict: 包含股票信息的字典，如果不满足条件则返回 None
-        - code: 股票代码
-        - name: 股票名称
-        - current_price: T日当前价格（最新收盘价）
-        - t_low: T日最低价
-        - period_low: 近N日最低价（含T-1日，不含T日）
-        - lookback_days: 回看天数
-        - t_1_price: T-1日收盘价
-        - t_1_low: T-1日最低价
+    返回 None 表示不满足条件，否则返回包含历史价格信息的字典。
     """
     try:
         cfg = CONFIG["filter"]
         lookback = int(cfg["lookback_days"])
 
-        # 获取近N日日线数据（优先读缓存，缺失时自动回源 API 并写入缓存）
-        df = _get_daily(code, frequency='1d', count=lookback + 10)
+        # 只取历史日线数据（不含今日），count=lookback+5 足够
+        df = _get_daily(code, frequency='1d', count=lookback + 5)
         if df is None or df.empty or len(df) < lookback + 1:
             return None
 
-        # 取近N日数据（用于计算阶段低点，包含T-1日，不含T日）
-        df_period = df.tail(lookback).copy()
+        # T-1 日 = 最后一条（历史数据不含今日）
+        t_1_day   = df.iloc[-1]
+        t_1_low   = float(t_1_day['low'])
+        t_1_close = float(t_1_day['close'])
 
-        # 获取T日（最新）数据
-        t_day = df.iloc[-1]
-        current_price = t_day['close']
-        t_low = t_day['low']  # T日最低价
+        # 近 N 日最低价（含 T-1 日）
+        df_period  = df.tail(lookback)
+        period_low = float(df_period['low'].min())
 
-        # 获取T-1日数据
-        t_1_day = df.iloc[-2]
-        t_1_price = t_1_day['close']
-        t_1_low = t_1_day['low']
+        # 筛选条件：T-1 日最低价 ≈ 近 N 日最低价
+        if abs(t_1_low - period_low) > 0.01:
+            return None
 
-        # 近N日最低价（包含T-1日，不含T日）
-        period_low = df_period['low'].min()
-
-        # 筛选条件：T-1日最低价 == 近N日最低价（即T-1日创了近N日新低）
-        # 允许有极小的误差（0.01元），因为可能存在四舍五入
-        if abs(t_1_low - period_low) <= 0.01:
-            return {
-                'code': code,
-                'name': '',  # 名称在第四阶段批量获取
-                'current_price': round(current_price, 2),
-                't_low': round(t_low, 2),
-                'period_low': round(period_low, 2),
-                'lookback_days': lookback,
-                # T-1日数据
-                't_1_price': round(t_1_price, 2),
-                't_1_low': round(t_1_low, 2),
-            }
-
-        return None
+        return {
+            'code':         code,
+            'name':         '',       # 第四阶段实时接口补充
+            't_1_low':      round(t_1_low, 2),
+            't_1_close':    round(t_1_close, 2),
+            'period_low':   round(period_low, 2),
+            'lookback_days': lookback,
+        }
 
     except Exception:
         return None
@@ -512,72 +485,73 @@ def get_stock_names_batch(codes: list[str]) -> dict[str, str]:
 
 def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
     """
-    第四阶段筛选：T日最低价 > T-1日最低价（含十字星）
-    
-    筛选条件：
-      t_low > t_1_low （T日最低价高于T-1日最低价）
-    
-    同时批量获取股票名称用于显示
-    
-    参数：
-      results: 第三阶段筛选结果列表
-    
-    返回：
-      list[dict]: 符合第四阶段条件的股票列表
+    第四阶段：获取当日实时数据，筛选今日最低价 > T-1 日最低价的股票。
+
+    第三阶段已过滤掉大部分股票，这里只对少量股票发实时请求，效率极高。
+    同时通过实时接口获取股票名称和当前价格。
     """
     print("\n" + "=" * 60)
-    print("🔍 第四阶段：筛选T日最低价 > T-1日最低价的股票")
+    print("🔍 第四阶段：获取实时数据，筛选今日最低价 > T-1日最低价")
     print("=" * 60)
-    print(f"🔍 开始筛选 {len(results)} 只股票...")
-    print(f"📋 筛选条件：T日最低价 > T-1日最低价（含十字星）")
-    print()
-    
-    # 批量获取股票名称
-    print("📝 正在获取股票名称...")
-    codes = [stock['code'] for stock in results]
-    names_map = get_stock_names_batch(codes)
-    
-    # 为每只股票填充名称
-    for stock in results:
-        stock['name'] = names_map.get(stock['code'], '')
-    
-    print(f"✅ 股票名称获取完成")
-    print()
-    
-    # 筛选 T日最低价 > T-1日最低价
+    print(f"📋 共 {len(results)} 只股票进入第四阶段，批量获取实时数据...")
+
+    # 批量获取实时行情（名称 + 当日最低价 + 当前价格）
+    codes = [r['code'] for r in results]
+    code_str = ','.join(codes)
+    url = f'http://qt.gtimg.cn/q={code_str}'
+
+    realtime = {}
+    try:
+        text = requests.get(url, timeout=10).text
+        for line in text.split(';'):
+            if not line.strip():
+                continue
+            data = line.split('~')
+            try:
+                head = line.split('=', 1)[0].strip()
+                qcode = head[2:] if head.startswith('v_') else None
+                if qcode and len(data) > 33:
+                    realtime[qcode] = {
+                        'name':          data[1],
+                        'current_price': float(data[3]) if data[3] else 0.0,
+                        # data[33] = 今日最低价
+                        't_low':         float(data[33]) if data[33] else 0.0,
+                    }
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"⚠️  实时数据获取失败: {e}")
+
+    print(f"✅ 实时数据获取完成，共 {len(realtime)} 只")
+
     filtered = []
     excluded = 0
-    total = len(results)
-    processed = 0
-    
-    for stock in results:
-        t_low = stock.get('t_low', stock['current_price'])  # 如果没有t_low，用current_price代替
-        t_1_low = stock['t_1_low']
-        
-        # 条件：T日最低价 > T-1日最低价
+
+    for r in results:
+        rt = realtime.get(r['code'], {})
+        t_low         = rt.get('t_low', 0.0)
+        current_price = rt.get('current_price', 0.0)
+        name          = rt.get('name', '')
+        t_1_low       = r['t_1_low']
+
+        # 无实时数据则跳过
+        if t_low <= 0 or current_price <= 0:
+            excluded += 1
+            continue
+
+        # 筛选条件：今日最低价 > T-1 日最低价
         if t_low > t_1_low:
-            filtered.append(stock)
+            filtered.append({
+                **r,
+                'name':          name,
+                'current_price': round(current_price, 2),
+                't_low':         round(t_low, 2),
+            })
         else:
             excluded += 1
-        
-        processed += 1
-        
-        # 每处理 100 只股票显示一次进度
-        if processed % 100 == 0 or processed == total:
-            pct = processed / total * 100
-            print(
-                f"\r  📊 筛选进度: {processed}/{total} ({pct:.1f}%) - "
-                f"已保留 {len(filtered)} 只",
-                end="",
-                flush=True
-            )
-    
-    print()  # 换行
-    print(f"✅ 第四阶段完成：")
-    print(f"   - 排除 {excluded} 只（T日最低价 <= T-1日最低价）")
-    print(f"   - 剩余 {len(filtered)} 只")
+
+    print(f"✅ 第四阶段完成：保留 {len(filtered)} 只，排除 {excluded} 只")
     print("=" * 60)
-    
     return filtered
 
 
@@ -722,13 +696,13 @@ def pick_month_low_stocks():
 
     # 构建显示表格：代码，名称，当前价格，T日最低价，T-1日最低价，当前价格vs T-1日最低价(%)，T日最低价vs T-1日最低价(%)
     df_display = pd.DataFrame({
-        '代码': df_result['code'].str[2:],
-        '名称': df_result['name'],
-        '当前': df_result['current_price'],
-        'T最低': df_result.get('t_low', df_result['current_price']),  # 兼容处理
-        'T-1最低': df_result['t_1_low'],
-        '当前vsT-1最低': df_result['price_vs_t1_low_pct'],
-        'T最低vsT-1最低': df_result['t_low_vs_t1_low_pct'],
+        '代码':          df_result['code'].str[2:],
+        '名称':          df_result['name'],
+        '当前价':        df_result['current_price'],
+        'T最低':         df_result['t_low'],
+        'T-1最低':       df_result['t_1_low'],
+        '当前vsT-1(%)':  df_result['price_vs_t1_low_pct'],
+        'T最低vsT-1(%)': df_result['t_low_vs_t1_low_pct'],
     })
 
     with pd.option_context(
