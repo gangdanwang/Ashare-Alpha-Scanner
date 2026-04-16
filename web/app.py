@@ -121,7 +121,8 @@ def api_market_overview():
 
 @app.route('/month_low')
 def month_low():
-    return render_template('month_low.html')
+    import time
+    return render_template('month_low.html', v=int(time.time()))
 
 
 @app.route('/api/month_low/dates')
