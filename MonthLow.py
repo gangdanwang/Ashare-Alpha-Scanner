@@ -52,7 +52,7 @@ MonthLow.py - 近两月低点选股策略（含T日最低价筛选）
 """
 
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from Ashare import get_price
