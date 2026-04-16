@@ -59,15 +59,15 @@ def get_today_high_low(codes: list[str]) -> dict[str, dict]:
 def get_t1_high_low(code: str) -> dict | None:
     """
     通过 Ashare 日线接口获取 T-1 日最高价和最低价。
-    取最新一条历史日线（不含今日）。
+    取倒数第 2 条（df.iloc[-2]），因为收盘后 df.iloc[-1] 已是今日。
     """
     try:
-        df = get_price(code, frequency='1d', count=2)
-        if df is None or df.empty:
+        df = get_price(code, frequency='1d', count=3)
+        if df is None or len(df) < 2:
             return None
-        row = df.iloc[-1]
+        row = df.iloc[-2]   # T-1 日
         return {
-            'date':  str(df.index[-1].date()),
+            'date':  str(df.index[-2].date()),
             'high':  round(float(row['high']), 2),
             'low':   round(float(row['low']),  2),
             'close': round(float(row['close']), 2),
