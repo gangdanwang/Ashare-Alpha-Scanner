@@ -57,12 +57,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from Ashare import get_price
 
-# 初始化本地缓存表
+# 初始化本地缓存表，并导入缓存接口
 try:
-    from stock_cache import init_stock_cache_table
+    from stock_cache import init_stock_cache_table, get_cached_price
     init_stock_cache_table()
-except:
-    pass
+    _get_daily = get_cached_price   # 第三阶段使用缓存接口
+except Exception as _e:
+    print(f"⚠️  缓存模块加载失败，将直接使用 API: {_e}")
+    _get_daily = get_price          # 降级到直接 API
 
 # ============================================================
 # 配置参数
@@ -339,8 +341,8 @@ def check_month_low(code: str) -> dict | None:
         cfg = CONFIG["filter"]
         lookback = int(cfg["lookback_days"])
 
-        # 获取近N日日线数据（多取几天用于获取T-1日数据和容错）
-        df = get_price(code, frequency='1d', count=lookback + 10)
+        # 获取近N日日线数据（优先读缓存，缺失时自动回源 API 并写入缓存）
+        df = _get_daily(code, frequency='1d', count=lookback + 10)
         if df is None or df.empty or len(df) < lookback + 1:
             return None
 

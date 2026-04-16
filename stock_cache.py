@@ -14,8 +14,14 @@ stock_cache.py - 股票日线数据本地缓存模块
 """
 import pandas as pd
 import requests
+import time
+import threading
 from datetime import datetime, timedelta
 from db import get_conn, init_db
+from Ashare import get_price as _ashare_get_price
+
+# 全局写入锁：序列化数据库写入操作，避免死锁
+_db_write_lock = threading.Lock()
 
 # ============================================================
 # 数据库表初始化
@@ -206,34 +212,38 @@ def save_daily_data_to_cache(code: str, df: pd.DataFrame, name: str = ''):
             low=VALUES(low), volume=VALUES(volume), updated_at=NOW()
     """
 
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.executemany(sql, records)
-        print(f"📦 成功保存 {len(records)} 条记录: {clean_code} {name}")
-        return len(records)
-    except Exception as e:
-        print(f"⚠️  数据库保存失败 ({clean_code}): {e}")
-        return 0
+    # 使用线程锁 + 重试机制：彻底避免死锁
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            # 获取写入锁，序列化数据库写入操作
+            with _db_write_lock:
+                with get_conn() as conn:
+                    with conn.cursor() as cur:
+                        cur.executemany(sql, records)
+            # 静默保存，不打印日志（减少输出噪音）
+            return len(records)
+        except Exception as e:
+            error_code = getattr(e, 'args', [None])[0] if hasattr(e, 'args') else None
+            # 1213 = Deadlock, 1205 = Lock wait timeout
+            if error_code in (1213, 1205) and attempt < max_retries - 1:
+                wait_time = 0.2 * (attempt + 1)  # 递增等待：0.2s, 0.4s, 0.6s, 0.8s
+                time.sleep(wait_time)
+                continue
+            # 只在最终失败时打印错误
+            print(f"⚠️  数据库保存失败 ({clean_code}): {e}")
+            return 0
+    
+    return 0
 
 
 # ============================================================
 # 对外统一接口（兼容 Ashare.get_price 用法）
 # ============================================================
-def get_cached_price(code: str, end_date='', count=10, frequency='1d', use_api=True, api_get_price=None) -> pd.DataFrame:
+def get_cached_price(code: str, end_date='', count=10, frequency='1d', fields=[]) -> pd.DataFrame:
     """
-    获取股票日线数据（优先本地缓存，缺失时调用 API）
-    
-    参数：
-      code: 股票代码，如 'sh600036' 或 '600036'
-      end_date: 结束日期（默认空表示到今天）
-      count: 需要的数据条数
-      frequency: 频率，如 '1d', '1w', '1M'
-      use_api: 是否允许回退到 API（默认 True）
-      api_get_price: API 获取函数（如 Ashare.get_price_day_tx）
-    
-    返回：
-      pd.DataFrame: 日线数据，格式与 Ashare.get_price() 一致
+    获取股票日线数据（优先本地缓存，缺失时自动调用 Ashare API 回源并写入缓存）
+    用法与 Ashare.get_price() 完全一致。
     """
     # 规范化代码
     xcode = code.replace('.XSHG','').replace('.XSHE','')
@@ -242,61 +252,38 @@ def get_cached_price(code: str, end_date='', count=10, frequency='1d', use_api=T
     elif 'XSHE' in code:
         xcode = 'sz' + xcode
     elif not xcode.startswith(('sh', 'sz')):
-        if xcode.startswith('6'):
-            xcode = 'sh' + xcode
-        else:
-            xcode = 'sz' + xcode
-    
-    # 计算日期范围
+        xcode = ('sh' if xcode.startswith('6') else 'sz') + xcode
+
+    # 计算查询日期范围（多取 2 倍天数以覆盖非交易日）
     if end_date:
-        if isinstance(end_date, str):
-            end_dt = pd.to_datetime(end_date)
-        else:
-            end_dt = end_date
+        end_dt = pd.to_datetime(end_date) if isinstance(end_date, str) else end_date
     else:
         end_dt = datetime.now()
-    
-    # 往前多取一些交易日（考虑非交易日）
-    start_dt = end_dt - timedelta(days=count * 2)
+
+    start_dt = end_dt - timedelta(days=count * 2 + 10)
     start_date_str = start_dt.strftime('%Y-%m-%d')
-    end_date_str = end_dt.strftime('%Y-%m-%d')
-    
-    # ── 第一步：查询本地缓存 ──
+    end_date_str   = end_dt.strftime('%Y-%m-%d')
+
+    # ── 第一步：查本地缓存 ──
     df_cache = get_cached_daily_data(xcode, start_date_str, end_date_str)
-    
-    # 检查缓存是否足够
     if len(df_cache) >= count:
-        # 缓存足够，直接返回最后 count 条
         return df_cache.tail(count)
-    
-    # ── 第二步：缓存不足，调用 API ──
-    if not use_api or api_get_price is None:
-        # 不允许调用 API，返回现有缓存
-        if not df_cache.empty:
-            return df_cache.tail(count)
-        return pd.DataFrame()
-    
+
+    # ── 第二步：缓存不足，调 Ashare API 回源 ──
     try:
-        # 调用 API 获取数据
-        df_api = api_get_price(xcode, end_date=end_date, count=count * 2, frequency=frequency)
-        
+        df_api = _ashare_get_price(xcode, end_date=end_date, count=count * 2, frequency=frequency)
         if df_api is None or df_api.empty:
-            # API 也失败，返回现有缓存
             return df_cache.tail(count) if not df_cache.empty else pd.DataFrame()
-        
-        # ── 第三步：保存 API 数据到缓存 ──
-        saved_count = save_daily_data_to_cache(xcode, df_api)
-        if saved_count > 0:
-            print(f"📦 缓存更新: {xcode} 新增/更新 {saved_count} 条日线数据")
-        
-        # ── 第四步：返回合并后的数据 ──
+
+        # 写入缓存（静默，不打印）
+        save_daily_data_to_cache(xcode, df_api)
+
+        # 重新从缓存读取（保证数据一致性）
         df_merged = get_cached_daily_data(xcode, start_date_str, end_date_str)
-        if df_merged.empty:
-            return df_api.tail(count)
-        
-        return df_merged.tail(count)
-        
+        if not df_merged.empty:
+            return df_merged.tail(count)
+        return df_api.tail(count)
+
     except Exception as e:
-        print(f"⚠️  API 查询失败 ({xcode}): {e}")
-        # 回退到缓存
+        # API 失败，降级返回现有缓存
         return df_cache.tail(count) if not df_cache.empty else pd.DataFrame()
