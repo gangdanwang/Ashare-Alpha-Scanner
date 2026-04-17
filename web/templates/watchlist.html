@@ -161,6 +161,17 @@
   <!-- 左侧面板 -->
   <div class="left-panel">
 
+    <!-- 再次筛选 -->
+    <div class="panel-section">
+      <div class="section-title">🔍 再次筛选</div>
+      <div class="filter-row">
+        <span class="filter-label">回看</span>
+        <input class="filter-input" type="number" id="input-lookback" value="10" min="1" max="250" />
+        <span class="filter-unit">日</span>
+      </div>
+      <button class="btn btn-primary" id="btn-rescreen" onclick="rescreen()" style="margin-top:4px">▶ 再次筛选</button>
+    </div>
+
     <!-- 日期选择 -->
     <div class="panel-section">
       <div class="section-title" style="justify-content:space-between">
@@ -234,7 +245,8 @@
 const PAGE_SIZE = 20;
 let allRows = [];
 let currentPage = 1;
-let selectedCodes = new Set();  // 跨分页保持选中状态
+let selectedCodes = new Set();
+let rescreenResult = {};
 
 // ── 日期列表 ──
 async function loadDates() {
@@ -262,6 +274,7 @@ async function selectDate(d, el) {
   allRows = rows;
   currentPage = 1;
   selectedCodes.clear();
+  rescreenResult = {};  // 切换日期时清空筛选结果
   updateSelToolbar();
   renderStats(rows);
   renderPage();
@@ -297,10 +310,17 @@ function renderPage() {
     const p1 = Number(r.price_vs_t1_pct);
     const p2 = Number(r.t_low_vs_t1_pct);
     const checked = selectedCodes.has(r.code) ? 'checked' : '';
-    html += '<tr>' +
+    const rs = rescreenResult[r.code];
+    const codeLabel = rs
+      ? (rs.passed
+          ? '<span style="color:var(--green);margin-right:3px">✅</span>'
+          : '<span style="color:var(--red);margin-right:3px">❌</span>')
+      : '';
+    const rowBg = rs && !rs.passed ? 'background:#fff5f5;' : '';
+    html += '<tr style="' + rowBg + '">' +
       '<td class="td-check"><input type="checkbox" class="row-check" data-code="' + r.code + '" ' + checked + ' onchange="onRowCheck(this)"></td>' +
       '<td style="color:var(--text3)">' + idx + '</td>' +
-      '<td><span class="code-cell" data-code="' + r.code + '" data-name="' + (r.name||'') + '">' + r.code + '</span></td>' +
+      '<td>' + codeLabel + '<span class="code-cell" data-code="' + r.code + '" data-name="' + (r.name||'') + '">' + r.code + '</span></td>' +
       '<td>' + (r.name||'-') + '</td>' +
       '<td><strong>' + Number(r.current_price).toFixed(2) + '</strong></td>' +
       '<td>' + Number(r.t_low).toFixed(2) + '</td>' +
@@ -428,6 +448,38 @@ function updateSelToolbar() {
   const n = selectedCodes.size;
   document.getElementById('sel-count').textContent = n;
   document.getElementById('select-toolbar').style.display = n > 0 ? 'flex' : 'none';
+}
+
+// ── 再次筛选 ──
+let rescreenResult = {};  // {code: {passed, t_low, current_price}}
+
+async function rescreen() {
+  const addDate = document.querySelector('.date-item.active')?.textContent?.trim();
+  if (!addDate) { toast('请先选择日期'); return; }
+  const btn = document.getElementById('btn-rescreen');
+  btn.disabled = true; btn.textContent = '⏳ 筛选中...';
+
+  const res = await fetch('/api/watchlist/rescreen', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({add_date: addDate})
+  }).then(r => r.json());
+
+  btn.disabled = false; btn.textContent = '▶ 再次筛选';
+
+  if (!res.ok) { toast(res.msg || '筛选失败'); return; }
+
+  // 存储结果
+  rescreenResult = {};
+  res.results.forEach(r => { rescreenResult[r.code] = r; });
+
+  const passed = res.results.filter(r => r.passed).length;
+  const total  = res.results.length;
+  const periodLabel = {'pre':'盘前','in':'盘中','post':'收盘后'}[res.period] || '';
+  toast(`筛选完成[${periodLabel}]：${passed}/${total} 只通过`);
+
+  // 重新渲染表格（带标记）
+  renderPage();
 }
 
 async function removeSelected() {

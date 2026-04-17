@@ -158,6 +158,103 @@ def api_watchlist_delete():
     data = request.json or {}
     delete_watchlist_item(data['code'], data['add_date'])
     return jsonify({'ok': True})
+
+
+@app.route('/api/watchlist/rescreen', methods=['POST'])
+def api_watchlist_rescreen():
+    """
+    对自选股列表进行第四阶段再次筛选。
+    实时重新获取当日价格，返回每只股票是否通过。
+    """
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    from MonthLow import _get_time_period
+    from stock_cache import get_cached_daily_data
+    from Ashare import get_price as ashare_get_price
+    from datetime import datetime as dt
+
+    data = request.json or {}
+    add_date = data.get('add_date')
+    if not add_date:
+        return jsonify({'ok': False, 'msg': '缺少 add_date'})
+
+    stocks = get_watchlist(add_date)
+    if not stocks:
+        return jsonify({'ok': False, 'msg': '该日期无自选股'})
+
+    period = _get_time_period()
+    codes_with_prefix = [('sh' if r['code'].startswith('6') else 'sz') + r['code'] for r in stocks]
+
+    # 获取 T 日数据（按时间段）
+    t_day_map = {}  # {code_with_prefix: {low, close}}
+
+    if period == 'pre':
+        # 盘前：用缓存最新一条（T-1 日）
+        for code, r in zip(codes_with_prefix, stocks):
+            df = get_cached_daily_data(r['code'])
+            if df is not None and not df.empty:
+                t_day_map[code] = {
+                    'low':   round(float(df['low'].iloc[-1]), 2),
+                    'close': round(float(df['close'].iloc[-1]), 2),
+                }
+
+    elif period == 'in':
+        # 盘中：实时 API
+        import requests as req
+        code_str = ','.join(codes_with_prefix)
+        try:
+            text = req.get(f'http://qt.gtimg.cn/q={code_str}', timeout=10).text
+            for line in text.split(';'):
+                if not line.strip(): continue
+                parts = line.split('~')
+                try:
+                    head = line.split('=', 1)[0].strip()
+                    qcode = head[2:] if head.startswith('v_') else None
+                    if qcode and len(parts) > 34:
+                        t_day_map[qcode] = {
+                            'low':   float(parts[34]) if parts[34] else 0.0,
+                            'close': float(parts[3])  if parts[3]  else 0.0,
+                        }
+                except Exception:
+                    continue
+        except Exception as e:
+            return jsonify({'ok': False, 'msg': f'实时数据获取失败: {e}'})
+
+    else:
+        # 收盘后：日线 iloc[-1]
+        for code in codes_with_prefix:
+            try:
+                df = ashare_get_price(code, frequency='1d', count=2)
+                if df is not None and not df.empty:
+                    t_day_map[code] = {
+                        'low':   round(float(df['low'].iloc[-1]), 2),
+                        'close': round(float(df['close'].iloc[-1]), 2),
+                    }
+            except Exception:
+                continue
+
+    # 逐只判断
+    results = []
+    for code_pfx, r in zip(codes_with_prefix, stocks):
+        td = t_day_map.get(code_pfx, {})
+        t_low   = td.get('low', 0.0)
+        t_close = td.get('close', 0.0)
+        t_1_low = float(r['t_1_low']) if r['t_1_low'] else 0.0
+
+        if t_low <= 0 or t_1_low <= 0:
+            passed = False
+        else:
+            passed = t_low > t_1_low
+
+        results.append({
+            'code':          r['code'],
+            'passed':        passed,
+            't_low':         round(t_low, 2),
+            'current_price': round(t_close, 2),
+            'period':        period,
+        })
+
+    return jsonify({'ok': True, 'results': results, 'period': period})
     import time
     return render_template('month_low.html', v=int(time.time()))
 
