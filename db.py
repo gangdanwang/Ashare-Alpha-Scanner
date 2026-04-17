@@ -239,27 +239,22 @@ def get_recent_dates(n: int = 10) -> list[str]:
 
 def upsert_month_low_results(scan_date: str, rows: list[dict]):
     """
-    写入 MonthLow 第四阶段结果，同一天同一股票覆盖更新。
-    rows: [{'code','name','current_price','t_low','t_1_low',
-             'price_vs_t1_low_pct','t_low_vs_t1_low_pct','lookback_days'}, ...]
+    写入 MonthLow 第四阶段结果。
+    先删除当天所有旧数据，再插入新数据，确保每次扫描结果完整替换。
     """
     if not rows:
         return
-    sql = """
-        INSERT INTO t_month_low_result
-            (scan_date, code, name, current_price, t_low, t_1_low,
-             price_vs_t1_pct, t_low_vs_t1_pct, lookback_days)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON DUPLICATE KEY UPDATE
-            name=VALUES(name), current_price=VALUES(current_price),
-            t_low=VALUES(t_low), t_1_low=VALUES(t_1_low),
-            price_vs_t1_pct=VALUES(price_vs_t1_pct),
-            t_low_vs_t1_pct=VALUES(t_low_vs_t1_pct),
-            lookback_days=VALUES(lookback_days),
-            updated_at=NOW()
-    """
     with get_conn() as conn:
         with conn.cursor() as cur:
+            # 先清空当天数据
+            cur.execute("DELETE FROM t_month_low_result WHERE scan_date=%s", (scan_date,))
+            # 再批量插入
+            sql = """
+                INSERT INTO t_month_low_result
+                    (scan_date, code, name, current_price, t_low, t_1_low,
+                     price_vs_t1_pct, t_low_vs_t1_pct, lookback_days)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """
             cur.executemany(sql, [
                 (scan_date, r['code'], r['name'],
                  r['current_price'], r['t_low'], r['t_1_low'],
