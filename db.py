@@ -288,18 +288,18 @@ def get_month_low_candidates(lookback_days: int, codes: list[str] = None) -> lis
     返回：
       list[str]: 满足条件的纯数字股票代码列表
     """
-    preceding = lookback_days - 1  # N 日窗口 = (N-1) PRECEDING + CURRENT ROW
+    preceding = lookback_days - 1
 
     where_clause = ""
-    params: list = [preceding]
+    params: list = []
 
     if codes:
-        # 去掉 sz/sh 前缀，统一用纯数字代码查询
         clean_codes = [c.replace('sz', '').replace('sh', '') for c in codes]
         placeholders = ','.join(['%s'] * len(clean_codes))
         where_clause = f"WHERE code IN ({placeholders})"
         params.extend(clean_codes)
 
+    # preceding 直接嵌入 SQL（整数，无 SQL 注入风险）
     sql = f"""
         SELECT code
         FROM (
@@ -309,7 +309,7 @@ def get_month_low_candidates(lookback_days: int, codes: list[str] = None) -> lis
                 MIN(low) OVER (
                     PARTITION BY code
                     ORDER BY trade_date
-                    ROWS BETWEEN %s PRECEDING AND CURRENT ROW
+                    ROWS BETWEEN {preceding} PRECEDING AND CURRENT ROW
                 ) AS min_low_n,
                 ROW_NUMBER() OVER (
                     PARTITION BY code
@@ -320,6 +320,7 @@ def get_month_low_candidates(lookback_days: int, codes: list[str] = None) -> lis
         ) t
         WHERE rn = 2
           AND low = min_low_n
+          AND low > 0
     """
 
     with get_conn() as conn:
