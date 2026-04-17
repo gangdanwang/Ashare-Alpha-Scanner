@@ -621,25 +621,16 @@ def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
             excluded += 1
             continue
 
-        # 条件2：T 日最低价 vs T-1 日最低价 >= 1%（涨幅不能太小）
-        t_low_vs_t1_pct = (t_low - t_1_low) / t_1_low * 100
-        if t_low_vs_t1_pct < 1.0:
-            excluded += 1
-            continue
-
-        # 条件3：当前价格 vs T-1 日最低价 <= 5%（涨幅不能太大，避免追高）
-        price_vs_t1_pct = (t_close - t_1_low) / t_1_low * 100
-        if price_vs_t1_pct > 5.0:
-            excluded += 1
-            continue
+        t_low_vs_t1_pct  = round((t_low  - t_1_low) / t_1_low * 100, 2)
+        price_vs_t1_pct  = round((t_close - t_1_low) / t_1_low * 100, 2)
 
         filtered.append({
             **r,
-            'name':              name,
-            'current_price':     round(t_close, 2),
-            't_low':             round(t_low, 2),
-            'price_vs_t1_low_pct': round(price_vs_t1_pct, 2),
-            't_low_vs_t1_low_pct': round(t_low_vs_t1_pct, 2),
+            'name':                name,
+            'current_price':       round(t_close, 2),
+            't_low':               round(t_low, 2),
+            'price_vs_t1_low_pct': price_vs_t1_pct,
+            't_low_vs_t1_low_pct': t_low_vs_t1_pct,
         })
 
     print(f"✅ 第四阶段完成：保留 {len(filtered)} 只，排除 {excluded} 只")
