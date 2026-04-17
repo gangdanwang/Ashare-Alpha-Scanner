@@ -255,8 +255,9 @@ def api_watchlist_rescreen():
         })
 
     return jsonify({'ok': True, 'results': results, 'period': period})
-    import time
-    return render_template('month_low.html', v=int(time.time()))
+
+
+@app.route('/month_low')
 
 
 @app.route('/api/month_low/dates')
