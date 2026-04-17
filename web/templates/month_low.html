@@ -219,6 +219,22 @@
     <div class="table-header">
       <span class="table-title">筛选结果</span>
       <span class="table-count" id="table-count"></span>
+      <div style="display:flex;align-items:center;gap:16px;margin-left:16px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2)">
+          T最低vsT-1 ≥
+          <input type="number" id="filter-t-low-pct" value="1" min="0" max="100" step="0.5"
+                 style="width:56px;height:28px;border:1px solid var(--border);border-radius:6px;padding:0 6px;font-size:13px;text-align:center;outline:none"
+                 oninput="applyFilters()">
+          <span style="color:var(--text3)">%</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2)">
+          当前vsT-1 ≤
+          <input type="number" id="filter-price-pct" value="5" min="0" max="100" step="0.5"
+                 style="width:56px;height:28px;border:1px solid var(--border);border-radius:6px;padding:0 6px;font-size:13px;text-align:center;outline:none"
+                 oninput="applyFilters()">
+          <span style="color:var(--text3)">%</span>
+        </label>
+      </div>
       <div id="select-toolbar" style="display:none;margin-left:auto;display:flex;align-items:center;gap:10px">
         <span style="font-size:13px;color:var(--text3)">已选 <b id="sel-count">0</b> 只</span>
         <button class="btn btn-ghost" onclick="clearSelection()" style="padding:5px 12px;font-size:12px">取消全选</button>
@@ -279,7 +295,7 @@ async function selectDate(d, el) {
   selectedCodes.clear();
   updateSelToolbar();
   renderStats(rows);
-  renderPage();
+  applyFilters();
 }
 
 // ── 分页渲染 ──
@@ -355,6 +371,23 @@ function renderPage() {
 
   addBtn('›', currentPage + 1, currentPage === totalPages, false);
   addBtn('»', totalPages, currentPage === totalPages, false);
+}
+
+// ── 前端过滤 ──
+function applyFilters() {
+  const tLowMin  = parseFloat(document.getElementById('filter-t-low-pct').value)  || 0;
+  const priceMax = parseFloat(document.getElementById('filter-price-pct').value) ?? 100;
+  const filtered = allRows.filter(r => {
+    const p1 = Number(r.price_vs_t1_pct);
+    const p2 = Number(r.t_low_vs_t1_pct);
+    return p2 >= tLowMin && p1 <= priceMax;
+  });
+  // 临时替换渲染数据（不修改 allRows）
+  const saved = allRows;
+  allRows = filtered;
+  currentPage = 1;
+  renderPage();
+  allRows = saved;
 }
 
 function pctClass(v) { return v > 0 ? 'pct-pos' : v < 0 ? 'pct-neg' : 'pct-zero'; }
