@@ -85,7 +85,7 @@ CONFIG = {
     # 筛选规则
     "filter": {
         # 近 N 个交易日创出新低（可配置：5日、10日、20日、40日等）
-        "lookback_days": 40,
+        "lookback_days": 20,
     },
 
     # 性能配置
