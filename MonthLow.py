@@ -491,72 +491,136 @@ def get_stock_names_batch(codes: list[str]) -> dict[str, str]:
         return {}
 
 
+def _get_time_period():
+    """判断当前时间段，返回 'pre'（盘前）/ 'in'（盘中）/ 'post'（收盘后）"""
+    from datetime import time as dtime
+    t = datetime.now().time()
+    if t < dtime(9, 30):
+        return 'pre'
+    elif t < dtime(15, 0):
+        return 'in'
+    else:
+        return 'post'
+
+
 def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
     """
-    第四阶段：获取当日实时数据，筛选今日最低价 > T-1 日最低价的股票。
+    第四阶段：获取 T 日数据，筛选今日最低价 > T-1 日最低价的股票。
 
-    第三阶段已过滤掉大部分股票，这里只对少量股票发实时请求，效率极高。
-    同时通过实时接口获取股票名称和当前价格。
+    T 日数据来源根据当前时间段决定：
+      00:00~09:30（盘前）  → 用 T-1 日历史数据（今日未开盘，以昨日代替）
+      09:30~15:00（盘中）  → 实时 API（data[33]=今日最高，data[34]=今日最低）
+      15:00~24:00（收盘后）→ 今日收盘日线（df.iloc[-1]）
     """
+    period = _get_time_period()
+    period_label = {'pre': '盘前(00:00~09:30)', 'in': '盘中(09:30~15:00)', 'post': '收盘后(15:00~24:00)'}[period]
+
     print("\n" + "=" * 60)
-    print("🔍 第四阶段：获取实时数据，筛选今日最低价 > T-1日最低价")
+    print(f"🔍 第四阶段：筛选 T日最低 > T-1日最低  [{period_label}]")
     print("=" * 60)
-    print(f"📋 共 {len(results)} 只股票进入第四阶段，批量获取实时数据...")
+    print(f"📋 共 {len(results)} 只股票进入第四阶段...")
 
-    # 批量获取实时行情（名称 + 当日最低价 + 当前价格）
     codes = [r['code'] for r in results]
-    code_str = ','.join(codes)
-    url = f'http://qt.gtimg.cn/q={code_str}'
 
-    realtime = {}
-    try:
-        text = requests.get(url, timeout=10).text
-        for line in text.split(';'):
-            if not line.strip():
-                continue
-            data = line.split('~')
+    # ── 获取 T 日数据 ──
+    t_day_map = {}  # {code: {high, low, close}}
+
+    if period == 'pre':
+        # 盘前：用缓存中最新一条（T-1 日，今日未开盘缓存无今日数据）
+        from stock_cache import get_cached_daily_data
+        for code in codes:
+            pure = code.replace('sz', '').replace('sh', '')
+            df = get_cached_daily_data(pure)
+            if df is not None and not df.empty:
+                row = df.iloc[-1]
+                t_day_map[code] = {
+                    'name':  '',
+                    'high':  round(float(row['high']), 2),
+                    'low':   round(float(row['low']),  2),
+                    'close': round(float(row['close']), 2),
+                }
+
+    elif period == 'in':
+        # 盘中：实时 API 批量获取
+        code_str = ','.join(codes)
+        try:
+            text = requests.get(f'http://qt.gtimg.cn/q={code_str}', timeout=10).text
+            for line in text.split(';'):
+                if not line.strip(): continue
+                data = line.split('~')
+                try:
+                    head = line.split('=', 1)[0].strip()
+                    qcode = head[2:] if head.startswith('v_') else None
+                    if qcode and len(data) > 34:
+                        t_day_map[qcode] = {
+                            'name':  data[1],
+                            'high':  float(data[33]) if data[33] else 0.0,  # 今日最高
+                            'low':   float(data[34]) if data[34] else 0.0,  # 今日最低
+                            'close': float(data[3])  if data[3]  else 0.0,  # 当前价
+                        }
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"⚠️  实时数据获取失败: {e}")
+
+    else:
+        # 收盘后：日线接口取今日收盘数据（df.iloc[-1] 就是今日）
+        from Ashare import get_price as _ashare_get_price
+        # 先批量拿名称（腾讯接口）
+        code_str = ','.join(codes)
+        name_map = {}
+        try:
+            text = requests.get(f'http://qt.gtimg.cn/q={code_str}', timeout=10).text
+            for line in text.split(';'):
+                if not line.strip(): continue
+                data = line.split('~')
+                try:
+                    head = line.split('=', 1)[0].strip()
+                    qcode = head[2:] if head.startswith('v_') else None
+                    if qcode and len(data) > 1:
+                        name_map[qcode] = data[1]
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        for code in codes:
             try:
-                head = line.split('=', 1)[0].strip()
-                qcode = head[2:] if head.startswith('v_') else None
-                if qcode and len(data) > 34:
-                    realtime[qcode] = {
-                        'name':          data[1],
-                        'current_price': float(data[3]) if data[3] else 0.0,
-                        # data[33] = 今日最高价，data[34] = 今日最低价
-                        't_high':        float(data[33]) if data[33] else 0.0,
-                        't_low':         float(data[34]) if data[34] else 0.0,
-                    }
+                df = _ashare_get_price(code, frequency='1d', count=2)
+                if df is None or df.empty:
+                    continue
+                row = df.iloc[-1]  # 收盘后 iloc[-1] 就是今日
+                t_day_map[code] = {
+                    'name':  name_map.get(code, ''),
+                    'high':  round(float(row['high']), 2),
+                    'low':   round(float(row['low']),  2),
+                    'close': round(float(row['close']), 2),
+                }
             except Exception:
                 continue
-    except Exception as e:
-        print(f"⚠️  实时数据获取失败: {e}")
 
-    print(f"✅ 实时数据获取完成，共 {len(realtime)} 只")
+    print(f"✅ T 日数据获取完成，共 {len(t_day_map)} 只")
 
+    # ── 筛选 ──
     filtered = []
     excluded = 0
 
     for r in results:
-        rt = realtime.get(r['code'], {})
-        t_low_rt      = rt.get('t_low', 0.0)
-        current_price = rt.get('current_price', 0.0)
-        name          = rt.get('name', '')
-        t_1_low       = r['t_1_low']
+        td = t_day_map.get(r['code'], {})
+        t_low     = td.get('low', 0.0)
+        t_close   = td.get('close', 0.0)
+        name      = td.get('name', '')
+        t_1_low   = r['t_1_low']
 
-        # 无实时数据则跳过
-        if current_price <= 0:
+        if t_low <= 0 or t_1_low is None:
             excluded += 1
             continue
 
-        # 盘前 t_low=0，用 t_1_low 作为今日最低的替代（昨日收盘数据）
-        t_low = t_low_rt if t_low_rt > 0 else t_1_low
-
-        # 筛选条件：今日最低价 > T-1 日最低价
         if t_low > t_1_low:
             filtered.append({
                 **r,
                 'name':          name,
-                'current_price': round(current_price, 2),
+                'current_price': round(t_close, 2),
                 't_low':         round(t_low, 2),
             })
         else:
