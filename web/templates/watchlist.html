@@ -451,8 +451,6 @@ function updateSelToolbar() {
 }
 
 // ── 再次筛选 ──
-let rescreenResult = {};  // {code: {passed, t_low, current_price}}
-
 async function rescreen() {
   const addDate = document.querySelector('.date-item.active')?.textContent?.trim();
   if (!addDate) { toast('请先选择日期'); return; }
