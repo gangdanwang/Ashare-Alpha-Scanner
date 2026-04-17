@@ -7,7 +7,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from flask import Flask, jsonify, request, render_template, Response
 from datetime import date
 from db import get_scan_results, update_selection, insert_mock_trades, get_mock_trades, get_recent_dates, \
-               get_month_low_results, get_month_low_dates
+               get_month_low_results, get_month_low_dates, \
+               upsert_watchlist, get_watchlist, get_watchlist_dates, delete_watchlist_item
 
 app = Flask(__name__)
 
@@ -119,8 +120,44 @@ def api_market_overview():
                     'limit_up': lu, 'limit_down': ld, 'total': len(all_items)})
 
 
+@app.route('/watchlist')
+def watchlist():
+    import time
+    return render_template('watchlist.html', v=int(time.time()))
+
+
 @app.route('/month_low')
 def month_low():
+    import time
+    return render_template('month_low.html', v=int(time.time()))
+
+
+@app.route('/api/watchlist/add', methods=['POST'])
+def api_watchlist_add():
+    data = request.json or {}
+    rows = data.get('rows', [])
+    add_date = data.get('add_date', date.today().strftime('%Y-%m-%d'))
+    if not rows:
+        return jsonify({'ok': False, 'msg': '没有选中的股票'})
+    upsert_watchlist(add_date, rows)
+    return jsonify({'ok': True, 'count': len(rows)})
+
+
+@app.route('/api/watchlist/dates')
+def api_watchlist_dates():
+    return jsonify(get_watchlist_dates(20))
+
+
+@app.route('/api/watchlist/<add_date>')
+def api_watchlist_list(add_date):
+    return jsonify(get_watchlist(add_date))
+
+
+@app.route('/api/watchlist/delete', methods=['POST'])
+def api_watchlist_delete():
+    data = request.json or {}
+    delete_watchlist_item(data['code'], data['add_date'])
+    return jsonify({'ok': True})
     import time
     return render_template('month_low.html', v=int(time.time()))
 

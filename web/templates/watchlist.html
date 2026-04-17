@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MonthLow · 近N日低点选股</title>
+  <title>自选股</title>
   <style>
     :root {
       --blue:#1664FF; --blue-lt:#E8F0FF; --green:#00B42A; --red:#F53F3F;
@@ -148,11 +148,11 @@
 <body>
 
 <div class="topbar">
-  <div class="topbar-logo"><span>📉</span> MonthLow</div>
-  <div class="topbar-sub">近N日低点反弹选股</div>
+  <div class="topbar-logo"><span>📌</span> 自选股</div>
+  <div class="topbar-sub">我的自选股列表</div>
   <nav style="margin-left:auto;display:flex;gap:4px">
-    <a href="/month_low" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;background:var(--blue);color:#fff;text-decoration:none">📉 筛选</a>
-    <a href="/watchlist" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:none;border:1px solid var(--border)">📌 自选</a>
+    <a href="/month_low" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:none;border:1px solid var(--border)">📉 筛选</a>
+    <a href="/watchlist" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;background:var(--blue);color:#fff;text-decoration:none">📌 自选</a>
   </nav>
 </div>
 
@@ -161,21 +161,10 @@
   <!-- 左侧面板 -->
   <div class="left-panel">
 
-    <!-- 筛选条件 -->
-    <div class="panel-section">
-      <div class="section-title">⚙️ 筛选条件</div>
-      <div class="filter-row">
-        <span class="filter-label">近</span>
-        <input class="filter-input" type="number" id="input-lookback" value="10" min="1" max="250" />
-        <span class="filter-unit">个交易日新低</span>
-      </div>
-      <button class="btn btn-primary" id="btn-run" onclick="runScan()" style="margin-top:4px">▶ 立即扫描</button>
-    </div>
-
     <!-- 日期选择 -->
     <div class="panel-section">
       <div class="section-title" style="justify-content:space-between">
-        📅 历史日期
+        📅 加入日期
         <span style="font-size:12px;font-weight:400;color:var(--text3);cursor:pointer" onclick="loadDates()">↻ 刷新</span>
       </div>
       <div class="date-list" id="date-list">
@@ -206,23 +195,19 @@
       </div>
     </div>
 
-    <!-- 扫描日志 -->
-    <div class="panel-section" id="log-section" style="display:none">
-      <div class="section-title">📋 扫描日志</div>
-      <div class="log-box" id="log-panel"></div>
-    </div>
+
 
   </div>
 
   <!-- 右侧结果 -->
   <div class="right-panel">
     <div class="table-header">
-      <span class="table-title">筛选结果</span>
+      <span class="table-title">自选股列表</span>
       <span class="table-count" id="table-count"></span>
       <div id="select-toolbar" style="display:none;margin-left:auto;display:flex;align-items:center;gap:10px">
         <span style="font-size:13px;color:var(--text3)">已选 <b id="sel-count">0</b> 只</span>
         <button class="btn btn-ghost" onclick="clearSelection()" style="padding:5px 12px;font-size:12px">取消全选</button>
-        <button class="btn btn-primary" onclick="addToWatchlist()" style="padding:5px 14px;font-size:12px">📌 加入自选</button>
+        <button class="btn" onclick="removeSelected()" style="padding:5px 14px;font-size:12px;background:#F53F3F;color:#fff">🗑 移除选中</button>
       </div>
     </div>
     <div class="table-wrap" id="table-wrap">
@@ -253,7 +238,7 @@ let selectedCodes = new Set();  // 跨分页保持选中状态
 
 // ── 日期列表 ──
 async function loadDates() {
-  const dates = await fetch('/api/month_low/dates').then(r => r.json());
+  const dates = await fetch('/api/watchlist/dates').then(r => r.json());
   const list = document.getElementById('date-list');
   list.innerHTML = '';
   if (!dates.length) {
@@ -273,7 +258,7 @@ async function loadDates() {
 async function selectDate(d, el) {
   document.querySelectorAll('.date-item').forEach(e => e.classList.remove('active'));
   el.classList.add('active');
-  const rows = await fetch('/api/month_low/' + d).then(r => r.json());
+  const rows = await fetch('/api/watchlist/' + d).then(r => r.json());
   allRows = rows;
   currentPage = 1;
   selectedCodes.clear();
@@ -376,44 +361,7 @@ function renderStats(rows) {
   document.getElementById('stat-lookback').textContent = lb + ' 日';
 }
 
-// ── 扫描 ──
-async function runScan() {
-  const lookback = parseInt(document.getElementById('input-lookback').value) || 10;
-  if (lookback < 1 || lookback > 250) { toast('回看天数请填 1~250'); return; }
-  const btn = document.getElementById('btn-run');
-  btn.disabled = true; btn.textContent = '⏳ 扫描中...';
-  const logSec = document.getElementById('log-section');
-  const panel  = document.getElementById('log-panel');
-  logSec.style.display = 'block'; panel.innerHTML = '';
 
-  const data = await fetch('/api/month_low/run', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({lookback_days: lookback})
-  }).then(r => r.json());
-
-  if (!data.ok) {
-    panel.innerHTML = '<span class="log-err">' + data.msg + '</span>';
-    btn.disabled = false; btn.textContent = '▶ 立即扫描'; return;
-  }
-
-  const es = new EventSource('/api/month_low/log');
-  es.onmessage = (e) => {
-    const line = e.data;
-    if (line === '__START__' || line === '__HEARTBEAT__') return;
-    if (line.startsWith('__DONE__')) {
-      const code = line.split(':')[1];
-      const el = document.createElement('div');
-      el.className = code === '0' ? 'log-done' : 'log-err';
-      el.textContent = code === '0' ? '✅ 扫描完成' : '❌ 扫描异常退出';
-      panel.appendChild(el); panel.scrollTop = panel.scrollHeight;
-      es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描';
-      loadDates(); return;
-    }
-    const el = document.createElement('div');
-    el.textContent = line; panel.appendChild(el); panel.scrollTop = panel.scrollHeight;
-  };
-  es.onerror = () => { es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描'; };
-}
 
 // ── K线浮层（事件委托，避免内联引号问题）──
 document.addEventListener('mouseover', (e) => {
@@ -482,33 +430,23 @@ function updateSelToolbar() {
   document.getElementById('select-toolbar').style.display = n > 0 ? 'flex' : 'none';
 }
 
-async function addToWatchlist() {
+async function removeSelected() {
   if (!selectedCodes.size) return;
-  // 找到选中股票的完整数据
-  const codeSet = selectedCodes;
-  const rows = allRows.filter(r => codeSet.has(r.code)).map(r => ({
-    code:            r.code,
-    name:            r.name || '',
-    current_price:   r.current_price,
-    t_low:           r.t_low,
-    t_1_low:         r.t_1_low,
-    price_vs_t1_pct: r.price_vs_t1_pct,
-    t_low_vs_t1_pct: r.t_low_vs_t1_pct,
-    lookback_days:   r.lookback_days,
-    scan_date:       document.querySelector('.date-item.active')?.textContent || '',
-  }));
-  const today = new Date().toISOString().slice(0, 10);
-  const res = await fetch('/api/watchlist/add', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({rows, add_date: today})
-  }).then(r => r.json());
-  if (res.ok) {
-    toast('已加入自选 ' + res.count + ' 只');
-    clearSelection();
-  } else {
-    toast(res.msg || '加入失败');
+  const addDate = document.querySelector('.date-item.active')?.textContent || '';
+  if (!addDate) return;
+  const codes = Array.from(selectedCodes);
+  for (const code of codes) {
+    await fetch('/api/watchlist/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({code, add_date: addDate})
+    });
   }
+  toast('已移除 ' + codes.length + ' 只');
+  clearSelection();
+  // 刷新当前日期数据
+  const activeEl = document.querySelector('.date-item.active');
+  if (activeEl) selectDate(addDate, activeEl);
 }
 
 function toast(msg) {

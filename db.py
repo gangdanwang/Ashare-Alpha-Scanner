@@ -61,6 +61,23 @@ CREATE TABLE IF NOT EXISTS t_month_low_result (
     updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_date_code (scan_date, code)
 ) COMMENT 'MonthLow 第四阶段筛选结果';
+
+CREATE TABLE IF NOT EXISTS t_watchlist (
+    id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+    add_date      DATE          NOT NULL COMMENT '加入日期',
+    code          VARCHAR(12)   NOT NULL COMMENT '股票代码（不含前缀）',
+    name          VARCHAR(20)   COMMENT '股票名称',
+    current_price DECIMAL(10,3) COMMENT '加入时价格',
+    t_low         DECIMAL(10,3) COMMENT 'T日最低价',
+    t_1_low       DECIMAL(10,3) COMMENT 'T-1日最低价',
+    price_vs_t1_pct DECIMAL(8,2) COMMENT '当前价格vsT-1最低(%)',
+    t_low_vs_t1_pct DECIMAL(8,2) COMMENT 'T最低vsT-1最低(%)',
+    lookback_days INT           COMMENT '回看天数',
+    scan_date     DATE          COMMENT '来源扫描日期',
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_add_date_code (add_date, code)
+) COMMENT '自选股列表';
 """
 
 
@@ -327,3 +344,60 @@ def get_month_low_candidates(lookback_days: int, codes: list[str] = None) -> lis
         with conn.cursor() as cur:
             cur.execute(sql, params)
             return [r['code'] for r in cur.fetchall()]
+
+
+def upsert_watchlist(add_date: str, rows: list[dict]):
+    """加入自选，同一天同一股票覆盖更新。"""
+    if not rows:
+        return
+    sql = """
+        INSERT INTO t_watchlist
+            (add_date, code, name, current_price, t_low, t_1_low,
+             price_vs_t1_pct, t_low_vs_t1_pct, lookback_days, scan_date)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON DUPLICATE KEY UPDATE
+            name=VALUES(name), current_price=VALUES(current_price),
+            t_low=VALUES(t_low), t_1_low=VALUES(t_1_low),
+            price_vs_t1_pct=VALUES(price_vs_t1_pct),
+            t_low_vs_t1_pct=VALUES(t_low_vs_t1_pct),
+            lookback_days=VALUES(lookback_days),
+            scan_date=VALUES(scan_date),
+            updated_at=NOW()
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(sql, [
+                (add_date, r['code'], r['name'], r['current_price'], r['t_low'],
+                 r['t_1_low'], r['price_vs_t1_pct'], r['t_low_vs_t1_pct'],
+                 r.get('lookback_days', 10), r.get('scan_date'))
+                for r in rows
+            ])
+
+
+def get_watchlist(add_date: str) -> list[dict]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM t_watchlist WHERE add_date=%s ORDER BY price_vs_t1_pct ASC",
+                (add_date,)
+            )
+            return cur.fetchall()
+
+
+def get_watchlist_dates(n: int = 20) -> list[str]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT add_date FROM t_watchlist ORDER BY add_date DESC LIMIT %s",
+                (n,)
+            )
+            return [str(r['add_date']) for r in cur.fetchall()]
+
+
+def delete_watchlist_item(code: str, add_date: str):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM t_watchlist WHERE code=%s AND add_date=%s",
+                (code, add_date)
+            )
