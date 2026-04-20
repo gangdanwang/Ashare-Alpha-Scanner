@@ -185,6 +185,78 @@ def api_position_update_stop_loss():
     data = request.json or {}
     res = update_stop_loss(data['code'], float(data['stop_loss']))
     return jsonify(res)
+
+
+@app.route('/api/position/refresh_prices', methods=['POST'])
+def api_position_refresh_prices():
+    """
+    刷新持仓中股票的实时价格，触发止损价判断。
+    当前价 <= 止损价时自动止损。
+    返回每只股票的实时价格和处理结果。
+    """
+    import requests as req
+    from MonthLow import _get_time_period
+    from Ashare import get_price as ashare_get_price
+
+    # 只处理持仓中的股票
+    positions = get_positions('hold')
+    if not positions:
+        return jsonify({'ok': True, 'results': [], 'msg': '无持仓中的股票'})
+
+    codes_with_prefix = [('sh' if r['code'].startswith('6') else 'sz') + r['code'] for r in positions]
+    period = _get_time_period()
+
+    # 获取实时价格
+    price_map = {}  # {code_with_prefix: current_price}
+
+    if period == 'in':
+        # 盘中：实时 API
+        code_str = ','.join(codes_with_prefix)
+        try:
+            text = req.get(f'http://qt.gtimg.cn/q={code_str}', timeout=10).text
+            for line in text.split(';'):
+                if not line.strip(): continue
+                parts = line.split('~')
+                try:
+                    head = line.split('=', 1)[0].strip()
+                    qcode = head[2:] if head.startswith('v_') else None
+                    if qcode and len(parts) > 3:
+                        price_map[qcode] = float(parts[3]) if parts[3] else 0.0
+                except Exception:
+                    continue
+        except Exception as e:
+            return jsonify({'ok': False, 'msg': f'实时数据获取失败: {e}'})
+    else:
+        # 盘前/收盘后：日线最新价
+        for code in codes_with_prefix:
+            try:
+                df = ashare_get_price(code, frequency='1d', count=2)
+                if df is not None and not df.empty:
+                    price_map[code] = round(float(df['close'].iloc[-1]), 2)
+            except Exception:
+                continue
+
+    # 逐只判断止损
+    results = []
+    for pos, code_pfx in zip(positions, codes_with_prefix):
+        current_price = price_map.get(code_pfx, 0.0)
+        stop_loss     = float(pos['t_1_low']) if pos['t_1_low'] else 0.0
+        action        = 'hold'
+
+        if current_price > 0 and stop_loss > 0 and current_price <= stop_loss:
+            # 触发止损
+            sell_position(pos['code'], current_price, 'loss')
+            action = 'stop_loss'
+
+        results.append({
+            'code':          pos['code'],
+            'name':          pos['name'],
+            'current_price': round(current_price, 2),
+            'stop_loss':     round(stop_loss, 2),
+            'action':        action,
+        })
+
+    return jsonify({'ok': True, 'results': results, 'period': period})
     import time
     return render_template('watchlist.html', v=int(time.time()))
 

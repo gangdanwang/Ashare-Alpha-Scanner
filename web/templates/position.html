@@ -196,12 +196,7 @@
     <div class="table-header">
       <span class="table-title">持仓明细</span>
       <span class="table-count" id="table-count"></span>
-      <div id="select-toolbar" style="display:none;margin-left:auto;display:flex;align-items:center;gap:10px">
-        <span style="font-size:13px;color:var(--text3)">已选 <b id="sel-count">0</b> 只</span>
-        <button class="btn btn-ghost" onclick="clearSelection()" style="padding:5px 12px;font-size:12px">取消全选</button>
-        <button class="btn" onclick="removeSelected()" style="padding:5px 14px;font-size:12px;background:#F53F3F;color:#fff">🗑 移除选中</button>
-        <button class="btn btn-primary" onclick="mockBuy()" style="padding:5px 14px;font-size:12px">💰 模拟买入</button>
-      </div>
+      <button class="btn btn-primary" id="btn-refresh-price" onclick="refreshPrices()" style="margin-left:auto;padding:6px 16px;font-size:13px">↻ 刷新价格</button>
     </div>
     <div class="table-wrap" id="table-wrap">
       <div class="empty-state">
@@ -236,19 +231,35 @@ async function loadPositions() {
   allRows = rows;
   currentPage = 1;
   updateStats(rows);
-  // 批量获取实时价格（只对持仓中的）
-  const holdCodes = rows.filter(r => r.status === 'hold').map(r => ('6'.includes(r.code[0]) ? 'sh' : 'sz') + r.code);
-  if (holdCodes.length) await fetchRealtime(holdCodes);
   renderPage();
 }
 
-async function fetchRealtime(codes) {
-  try {
-    const text = await fetch('http://qt.gtimg.cn/q=' + codes.join(','), {mode:'no-cors'}).catch(()=>null);
-    // 由于跨域限制，实时价格通过后端代理获取
-    const res = await fetch('/api/position/realtime?codes=' + codes.join(',')).then(r=>r.json()).catch(()=>({}));
-    realtimeMap = res;
-  } catch(e) {}
+async function refreshPrices() {
+  const btn = document.getElementById('btn-refresh-price');
+  btn.disabled = true; btn.textContent = '⏳ 刷新中...';
+
+  const res = await fetch('/api/position/refresh_prices', { method: 'POST' }).then(r => r.json());
+
+  btn.disabled = false; btn.textContent = '↻ 刷新价格';
+
+  if (!res.ok) { toast(res.msg || '刷新失败'); return; }
+
+  // 更新实时价格 map
+  res.results.forEach(r => {
+    const key = (r.code.startsWith('6') ? 'sh' : 'sz') + r.code;
+    realtimeMap[key] = r.current_price;
+  });
+
+  // 统计止损触发数
+  const stopped = res.results.filter(r => r.action === 'stop_loss');
+  if (stopped.length) {
+    toast(`已自动止损 ${stopped.length} 只：${stopped.map(r => r.code).join('、')}`);
+  } else {
+    toast(`价格已刷新，${res.results.length} 只持仓中`);
+  }
+
+  // 重新加载持仓列表（止损后状态变化）
+  await loadPositions();
 }
 
 function filterStatus(status, el) {
