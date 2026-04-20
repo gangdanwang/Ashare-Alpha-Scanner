@@ -8,7 +8,8 @@ from flask import Flask, jsonify, request, render_template, Response
 from datetime import date
 from db import get_scan_results, update_selection, insert_mock_trades, get_mock_trades, get_recent_dates, \
                get_month_low_results, get_month_low_dates, \
-               upsert_watchlist, get_watchlist, get_watchlist_dates, delete_watchlist_item
+               upsert_watchlist, get_watchlist, get_watchlist_dates, delete_watchlist_item, \
+               insert_position, get_positions, sell_position, update_stop_loss
 
 app = Flask(__name__)
 
@@ -120,8 +121,70 @@ def api_market_overview():
                     'limit_up': lu, 'limit_down': ld, 'total': len(all_items)})
 
 
-@app.route('/watchlist')
-def watchlist():
+@app.route('/position')
+def position_page():
+    import time
+    return render_template('position.html', v=int(time.time()))
+
+
+@app.route('/api/position/buy', methods=['POST'])
+def api_position_buy():
+    """模拟买入：每只股票 1 万元，按手（100股）向下取整"""
+    data = request.json or {}
+    stocks = data.get('stocks', [])
+    budget = float(data.get('budget', 10000))
+    results = []
+    for s in stocks:
+        price = float(s.get('current_price', 0))
+        if price <= 0:
+            results.append({'code': s['code'], 'ok': False, 'msg': '价格无效'})
+            continue
+        shares = int(budget / price / 100) * 100
+        if shares <= 0:
+            shares = 100
+        amount = round(shares * price, 2)
+        row = {
+            'code':            s['code'],
+            'name':            s.get('name', ''),
+            'buy_date':        date.today().strftime('%Y-%m-%d'),
+            'buy_price':       round(price, 3),
+            'shares':          shares,
+            'amount':          amount,
+            't_1_low':         s.get('t_1_low'),
+            't_low':           s.get('t_low'),
+            'price_vs_t1_pct': s.get('price_vs_t1_pct'),
+            't_low_vs_t1_pct': s.get('t_low_vs_t1_pct'),
+            'lookback_days':   s.get('lookback_days', 20),
+        }
+        res = insert_position(row)
+        results.append({'code': s['code'], **res})
+    return jsonify({'ok': True, 'results': results})
+
+
+@app.route('/api/position/list')
+def api_position_list():
+    status = request.args.get('status')
+    rows = get_positions(status)
+    # 序列化 date 类型
+    for r in rows:
+        for k in ['buy_date', 'sell_date', 'created_at', 'updated_at']:
+            if r.get(k) and not isinstance(r[k], str):
+                r[k] = str(r[k])
+    return jsonify(rows)
+
+
+@app.route('/api/position/sell', methods=['POST'])
+def api_position_sell():
+    data = request.json or {}
+    res = sell_position(data['code'], float(data['sell_price']), data['sell_type'])
+    return jsonify(res)
+
+
+@app.route('/api/position/update_stop_loss', methods=['POST'])
+def api_position_update_stop_loss():
+    data = request.json or {}
+    res = update_stop_loss(data['code'], float(data['stop_loss']))
+    return jsonify(res)
     import time
     return render_template('watchlist.html', v=int(time.time()))
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>自选股</title>
+  <title>持仓记录</title>
   <style>
     :root {
       --blue:#1664FF; --blue-lt:#E8F0FF; --green:#00B42A; --red:#F53F3F;
@@ -148,12 +148,12 @@
 <body>
 
 <div class="topbar">
-  <div class="topbar-logo"><span>📌</span> 自选股</div>
-  <div class="topbar-sub">我的自选股列表</div>
+  <div class="topbar-logo"><span>💼</span> 持仓记录</div>
+  <div class="topbar-sub">模拟持仓明细</div>
   <nav style="margin-left:auto;display:flex;gap:4px">
     <a href="/month_low" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:none;border:1px solid var(--border)">📉 筛选</a>
-    <a href="/watchlist" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;background:var(--blue);color:#fff;text-decoration:none">📌 自选</a>
-    <a href="/position" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:none;border:1px solid var(--border)">💼 持仓</a>
+    <a href="/watchlist" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:none;border:1px solid var(--border)">📌 自选</a>
+    <a href="/position" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;background:var(--blue);color:#fff;text-decoration:none">💼 持仓</a>
   </nav>
 </div>
 
@@ -164,46 +164,26 @@
 
     <!-- 再次筛选 -->
     <div class="panel-section">
-      <div class="section-title">🔍 再次筛选</div>
-      <div class="filter-row">
-        <span class="filter-label">回看</span>
-        <input class="filter-input" type="number" id="input-lookback" value="20" min="1" max="250" />
-        <span class="filter-unit">日</span>
+      <div class="section-title">📊 持仓统计</div>
+      <div class="stat-grid" id="pos-stat-grid">
+        <div class="stat-card"><div class="stat-label">持仓中</div><div class="stat-val blue" id="pos-hold">--</div></div>
+        <div class="stat-card"><div class="stat-label">已止盈</div><div class="stat-val green" id="pos-profit">--</div></div>
+        <div class="stat-card"><div class="stat-label">已止损</div><div class="stat-val red" id="pos-loss">--</div></div>
+        <div class="stat-card"><div class="stat-label">总盈亏</div><div class="stat-val" id="pos-pnl">--</div></div>
       </div>
-      <button class="btn btn-primary" id="btn-rescreen" onclick="rescreen()" style="margin-top:4px">▶ 再次筛选</button>
     </div>
 
-    <!-- 日期选择 -->
+    <!-- 状态筛选 -->
     <div class="panel-section">
       <div class="section-title" style="justify-content:space-between">
-        📅 加入日期
-        <span style="font-size:12px;font-weight:400;color:var(--text3);cursor:pointer" onclick="loadDates()">↻ 刷新</span>
+        📋 状态筛选
+        <span style="font-size:12px;font-weight:400;color:var(--text3);cursor:pointer" onclick="loadPositions()">↻ 刷新</span>
       </div>
-      <div class="date-list" id="date-list">
-        <div style="color:var(--text3);font-size:13px">加载中...</div>
-      </div>
-    </div>
-
-    <!-- 统计 -->
-    <div class="panel-section" id="stat-section" style="display:none">
-      <div class="section-title">📊 本次统计</div>
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="stat-label">筛选股票数</div>
-          <div class="stat-val blue" id="stat-total">--</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">T最低高于T-1</div>
-          <div class="stat-val green" id="stat-t-above">--</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">平均偏离(%)</div>
-          <div class="stat-val" id="stat-avg-pct">--</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">回看天数</div>
-          <div class="stat-val" id="stat-lookback">--</div>
-        </div>
+      <div class="date-list" id="status-list">
+        <div class="date-item active" onclick="filterStatus('all',this)">全部</div>
+        <div class="date-item" onclick="filterStatus('hold',this)">持仓中</div>
+        <div class="date-item" onclick="filterStatus('profit',this)">已止盈</div>
+        <div class="date-item" onclick="filterStatus('loss',this)">已止损</div>
       </div>
     </div>
 
@@ -214,7 +194,7 @@
   <!-- 右侧结果 -->
   <div class="right-panel">
     <div class="table-header">
-      <span class="table-title">自选股列表</span>
+      <span class="table-title">持仓明细</span>
       <span class="table-count" id="table-count"></span>
       <div id="select-toolbar" style="display:none;margin-left:auto;display:flex;align-items:center;gap:10px">
         <span style="font-size:13px;color:var(--text3)">已选 <b id="sel-count">0</b> 只</span>
@@ -244,45 +224,54 @@
 <div id="toast"></div>
 
 <script>
-const PAGE_SIZE = 20;
 let allRows = [];
 let currentPage = 1;
-let selectedCodes = new Set();
-let rescreenResult = {};
+const PAGE_SIZE = 20;
+let currentStatus = 'all';
+let realtimeMap = {};  // {code_with_prefix: {price}}
 
-// ── 日期列表 ──
-async function loadDates() {
-  const dates = await fetch('/api/watchlist/dates').then(r => r.json());
-  const list = document.getElementById('date-list');
-  list.innerHTML = '';
-  if (!dates.length) {
-    list.innerHTML = '<div style="color:var(--text3);font-size:13px">暂无数据，请先扫描</div>';
-    return;
-  }
-  dates.forEach((d, i) => {
-    const el = document.createElement('div');
-    el.className = 'date-item' + (i === 0 ? ' active' : '');
-    el.textContent = d;
-    el.onclick = () => selectDate(d, el);
-    list.appendChild(el);
-  });
-  selectDate(dates[0], list.querySelector('.date-item'));
-}
-
-async function selectDate(d, el) {
-  document.querySelectorAll('.date-item').forEach(e => e.classList.remove('active'));
-  el.classList.add('active');
-  const rows = await fetch('/api/watchlist/' + d).then(r => r.json());
+async function loadPositions() {
+  const url = currentStatus === 'all' ? '/api/position/list' : '/api/position/list?status=' + currentStatus;
+  const rows = await fetch(url).then(r => r.json());
   allRows = rows;
   currentPage = 1;
-  selectedCodes.clear();
-  rescreenResult = {};  // 切换日期时清空筛选结果
-  updateSelToolbar();
-  renderStats(rows);
+  updateStats(rows);
+  // 批量获取实时价格（只对持仓中的）
+  const holdCodes = rows.filter(r => r.status === 'hold').map(r => ('6'.includes(r.code[0]) ? 'sh' : 'sz') + r.code);
+  if (holdCodes.length) await fetchRealtime(holdCodes);
   renderPage();
 }
 
-// ── 分页渲染 ──
+async function fetchRealtime(codes) {
+  try {
+    const text = await fetch('http://qt.gtimg.cn/q=' + codes.join(','), {mode:'no-cors'}).catch(()=>null);
+    // 由于跨域限制，实时价格通过后端代理获取
+    const res = await fetch('/api/position/realtime?codes=' + codes.join(',')).then(r=>r.json()).catch(()=>({}));
+    realtimeMap = res;
+  } catch(e) {}
+}
+
+function filterStatus(status, el) {
+  currentStatus = status;
+  document.querySelectorAll('.date-item').forEach(e => e.classList.remove('active'));
+  el.classList.add('active');
+  loadPositions();
+}
+
+function updateStats(rows) {
+  const hold   = rows.filter(r => r.status === 'hold').length;
+  const profit = rows.filter(r => r.status === 'profit').length;
+  const loss   = rows.filter(r => r.status === 'loss').length;
+  const closed = rows.filter(r => r.pnl_pct != null && r.status !== 'hold');
+  const avgPnl = closed.length ? (closed.reduce((s,r) => s + Number(r.pnl_pct), 0) / closed.length).toFixed(2) : '--';
+  document.getElementById('pos-hold').textContent   = hold;
+  document.getElementById('pos-profit').textContent = profit;
+  document.getElementById('pos-loss').textContent   = loss;
+  const pnlEl = document.getElementById('pos-pnl');
+  pnlEl.textContent = avgPnl === '--' ? '--' : (avgPnl >= 0 ? '+' : '') + avgPnl + '%';
+  pnlEl.className = 'stat-val ' + (avgPnl > 0 ? 'green' : avgPnl < 0 ? 'red' : '');
+}
+
 function renderPage() {
   const total = allRows.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -292,100 +281,112 @@ function renderPage() {
 
   const wrap = document.getElementById('table-wrap');
   const cnt  = document.getElementById('table-count');
-  cnt.textContent = total ? '共 ' + total + ' 只' : '';
+  cnt.textContent = total ? '共 ' + total + ' 条' : '';
 
   if (!total) {
-    wrap.innerHTML = '<div class="empty-state"><div class="icon">🔍</div><p>该日期暂无筛选数据</p></div>';
+    wrap.innerHTML = '<div class="empty-state"><div class="icon">💼</div><p>暂无持仓记录</p></div>';
     document.getElementById('pagination').style.display = 'none';
     return;
   }
 
+  const today = new Date();
   let html = '<table><thead><tr>' +
-    '<th class="th-check"><input type="checkbox" id="check-all" onchange="toggleAll(this)"></th>' +
-    '<th>#</th><th>代码</th><th>名称</th>' +
-    '<th>当前价</th><th>T最低</th><th>T-1最低</th>' +
-    '<th>当前vsT-1(%)</th><th>T最低vsT-1(%)</th><th>回看天数</th>' +
+    '<th>代码</th><th>名称</th><th>成本价</th><th>实时价</th><th>盈利</th>' +
+    '<th>止损价</th><th>买入日期</th><th>持有天数</th><th>状态</th><th>操作</th>' +
     '</tr></thead><tbody>';
 
-  pageRows.forEach((r, i) => {
-    const idx = start + i + 1;
-    const p1 = Number(r.price_vs_t1_pct);
-    const p2 = Number(r.t_low_vs_t1_pct);
-    const checked = selectedCodes.has(r.code) ? 'checked' : '';
-    const rs = rescreenResult[r.code];
-    const codeLabel = rs
-      ? (rs.passed
-          ? '<span style="color:var(--green);margin-right:3px">✅</span>'
-          : '<span style="color:var(--red);margin-right:3px">❌</span>')
-      : '';
-    const rowBg = rs && !rs.passed ? 'background:#fff5f5;' : '';
-    html += '<tr style="' + rowBg + '">' +
-      '<td class="td-check"><input type="checkbox" class="row-check" data-code="' + r.code + '" ' + checked + ' onchange="onRowCheck(this)"></td>' +
-      '<td style="color:var(--text3)">' + idx + '</td>' +
-      '<td>' + codeLabel + '<span class="code-cell" data-code="' + r.code + '" data-name="' + (r.name||'') + '">' + r.code + '</span></td>' +
+  pageRows.forEach(r => {
+    const buyDate  = new Date(r.buy_date);
+    const holdDays = r.status === 'hold'
+      ? Math.floor((today - buyDate) / 86400000)
+      : (r.sell_date ? Math.floor((new Date(r.sell_date) - buyDate) / 86400000) : '--');
+
+    const codeKey  = ('6'.includes(r.code[0]) ? 'sh' : 'sz') + r.code;
+    const rtPrice  = realtimeMap[codeKey] || null;
+    const dispPrice = rtPrice ? rtPrice.toFixed(2) : (r.sell_price ? Number(r.sell_price).toFixed(2) : '--');
+
+    let pnlPct = '--', pnlClass = '';
+    if (r.status !== 'hold' && r.pnl_pct != null) {
+      pnlPct = (Number(r.pnl_pct) >= 0 ? '+' : '') + Number(r.pnl_pct).toFixed(2) + '%';
+      pnlClass = Number(r.pnl_pct) >= 0 ? 'pct-pos' : 'pct-neg';
+    } else if (rtPrice && r.buy_price) {
+      const p = (rtPrice - Number(r.buy_price)) / Number(r.buy_price) * 100;
+      pnlPct = (p >= 0 ? '+' : '') + p.toFixed(2) + '%';
+      pnlClass = p >= 0 ? 'pct-pos' : 'pct-neg';
+    }
+
+    const statusMap = {'hold':'<span style="color:var(--blue)">持有</span>',
+                       'profit':'<span style="color:var(--green)">止盈</span>',
+                       'loss':'<span style="color:var(--red)">止损</span>'};
+    const ops = r.status === 'hold'
+      ? '<button class="btn" style="background:var(--green);color:#fff;padding:4px 10px;font-size:12px" onclick="sellPos(\''+r.code+'\',\'profit\')">止盈</button> ' +
+        '<button class="btn" style="background:var(--red);color:#fff;padding:4px 10px;font-size:12px" onclick="sellPos(\''+r.code+'\',\'loss\')">止损</button>'
+      : '<span style="color:var(--text3);font-size:12px">' + (r.sell_date||'') + '</span>';
+
+    html += '<tr>' +
+      '<td><span class="code-cell" data-code="' + r.code + '" data-name="' + (r.name||'') + '">' + r.code + '</span></td>' +
       '<td>' + (r.name||'-') + '</td>' +
-      '<td><strong>' + Number(r.current_price).toFixed(2) + '</strong></td>' +
-      '<td>' + Number(r.t_low).toFixed(2) + '</td>' +
-      '<td>' + Number(r.t_1_low).toFixed(2) + '</td>' +
-      '<td><span class="' + pctClass(p1) + '">' + fmt(p1) + '</span></td>' +
-      '<td><span class="' + pctClass(p2) + '">' + fmt(p2) + '</span></td>' +
-      '<td style="color:var(--text3)">' + (r.lookback_days||'-') + '</td>' +
+      '<td>' + Number(r.buy_price).toFixed(2) + '</td>' +
+      '<td><strong>' + dispPrice + '</strong></td>' +
+      '<td><span class="' + pnlClass + '">' + pnlPct + '</span></td>' +
+      '<td><span style="cursor:pointer;text-decoration:underline dotted" onclick="editStopLoss(\''+r.code+'\','+r.t_1_low+')">' + (r.t_1_low ? Number(r.t_1_low).toFixed(2) : '--') + '</span></td>' +
+      '<td>' + (r.buy_date||'') + '</td>' +
+      '<td>' + holdDays + '</td>' +
+      '<td>' + (statusMap[r.status]||r.status) + '</td>' +
+      '<td style="display:flex;gap:4px">' + ops + '</td>' +
       '</tr>';
   });
   wrap.innerHTML = html + '</tbody></table>';
 
-  // 分页控件
-  const pg = document.getElementById('pagination');
+  // 分页
+  const pg   = document.getElementById('pagination');
   const info = document.getElementById('page-info');
   const btns = document.getElementById('page-btns');
   pg.style.display = 'flex';
   info.textContent = '第 ' + currentPage + ' / ' + totalPages + ' 页，共 ' + total + ' 条';
-
   btns.innerHTML = '';
   const addBtn = (label, page, disabled, active) => {
     const b = document.createElement('button');
     b.className = 'page-btn' + (active ? ' active' : '');
-    b.textContent = label;
-    b.disabled = disabled;
+    b.textContent = label; b.disabled = disabled;
     b.onclick = () => { currentPage = page; renderPage(); };
     btns.appendChild(b);
   };
-
-  addBtn('«', 1, currentPage === 1, false);
-  addBtn('‹', currentPage - 1, currentPage === 1, false);
-
-  // 页码窗口
-  let lo = Math.max(1, currentPage - 2);
-  let hi = Math.min(totalPages, lo + 4);
-  lo = Math.max(1, hi - 4);
-  for (let p = lo; p <= hi; p++) addBtn(p, p, false, p === currentPage);
-
-  addBtn('›', currentPage + 1, currentPage === totalPages, false);
-  addBtn('»', totalPages, currentPage === totalPages, false);
+  addBtn('«', 1, currentPage===1, false);
+  addBtn('‹', currentPage-1, currentPage===1, false);
+  let lo = Math.max(1, currentPage-2), hi = Math.min(totalPages, lo+4);
+  lo = Math.max(1, hi-4);
+  for (let p = lo; p <= hi; p++) addBtn(p, p, false, p===currentPage);
+  addBtn('›', currentPage+1, currentPage===totalPages, false);
+  addBtn('»', totalPages, currentPage===totalPages, false);
 }
 
-function pctClass(v) { return v > 0 ? 'pct-pos' : v < 0 ? 'pct-neg' : 'pct-zero'; }
-function fmt(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
-
-function renderStats(rows) {
-  const sec = document.getElementById('stat-section');
-  if (!rows.length) { sec.style.display = 'none'; return; }
-  sec.style.display = 'block';
-  const total = rows.length;
-  const avg = (rows.reduce((s,r) => s + Number(r.price_vs_t1_pct), 0) / total).toFixed(2);
-  const above = rows.filter(r => Number(r.t_low_vs_t1_pct) > 0).length;
-  const lb = rows[0].lookback_days || '-';
-  document.getElementById('stat-total').textContent = total;
-  document.getElementById('stat-t-above').textContent = above + ' 只';
-  const avgEl = document.getElementById('stat-avg-pct');
-  avgEl.textContent = (avg >= 0 ? '+' : '') + avg + '%';
-  avgEl.className = 'stat-val ' + (avg > 0 ? 'red' : avg < 0 ? 'green' : '');
-  document.getElementById('stat-lookback').textContent = lb + ' 日';
+async function sellPos(code, sellType) {
+  const rtKey = ('6'.includes(code[0]) ? 'sh' : 'sz') + code;
+  const price = realtimeMap[rtKey] || parseFloat(prompt('请输入卖出价格：') || '0');
+  if (!price) return;
+  const res = await fetch('/api/position/sell', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({code, sell_price: price, sell_type: sellType})
+  }).then(r => r.json());
+  toast(res.ok ? (sellType==='profit'?'止盈':'止损') + '成功，盈亏 ' + res.pnl_pct + '%' : res.msg);
+  loadPositions();
 }
 
+async function editStopLoss(code, current) {
+  const val = prompt('修改止损价（当前：' + current + '）：', current);
+  if (!val || isNaN(val)) return;
+  await fetch('/api/position/update_stop_loss', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({code, stop_loss: parseFloat(val)})
+  });
+  toast('止损价已更新');
+  loadPositions();
+}
 
-
-// ── K线浮层（事件委托，避免内联引号问题）──
+// K线浮层
 document.addEventListener('mouseover', (e) => {
   const el = e.target.closest('.code-cell');
   if (!el) return;
@@ -394,7 +395,6 @@ document.addEventListener('mouseover', (e) => {
 document.addEventListener('mouseout', (e) => {
   if (e.target.closest('.code-cell')) hideKline();
 });
-
 function klineUrl(code) {
   const market = code.startsWith('6') ? '1' : '0';
   return 'http://webquotepic.eastmoney.com/GetPic.aspx?nid=' + market + '.' + code + '&imageType=k&token=44c9d251add88e27b65ed86506f6758a';
@@ -416,125 +416,13 @@ function hideKline() {
   _klineTimer = setTimeout(() => { document.getElementById('kline-popup').style.display = 'none'; }, 150);
 }
 
-// ── 复选框 ──
-function onRowCheck(cb) {
-  if (cb.checked) selectedCodes.add(cb.dataset.code);
-  else selectedCodes.delete(cb.dataset.code);
-  updateSelToolbar();
-  // 同步全选框状态
-  const all = document.querySelectorAll('.row-check');
-  const checked = document.querySelectorAll('.row-check:checked');
-  const ca = document.getElementById('check-all');
-  if (ca) ca.indeterminate = checked.length > 0 && checked.length < all.length;
-  if (ca) ca.checked = all.length > 0 && checked.length === all.length;
-}
-
-function toggleAll(cb) {
-  document.querySelectorAll('.row-check').forEach(c => {
-    c.checked = cb.checked;
-    if (cb.checked) selectedCodes.add(c.dataset.code);
-    else selectedCodes.delete(c.dataset.code);
-  });
-  updateSelToolbar();
-}
-
-function clearSelection() {
-  selectedCodes.clear();
-  document.querySelectorAll('.row-check').forEach(c => c.checked = false);
-  const ca = document.getElementById('check-all');
-  if (ca) { ca.checked = false; ca.indeterminate = false; }
-  updateSelToolbar();
-}
-
-function updateSelToolbar() {
-  const n = selectedCodes.size;
-  document.getElementById('sel-count').textContent = n;
-  document.getElementById('select-toolbar').style.display = n > 0 ? 'flex' : 'none';
-}
-
-// ── 再次筛选 ──
-async function rescreen() {
-  const addDate = document.querySelector('.date-item.active')?.textContent?.trim();
-  if (!addDate) { toast('请先选择日期'); return; }
-  const btn = document.getElementById('btn-rescreen');
-  btn.disabled = true; btn.textContent = '⏳ 筛选中...';
-
-  const res = await fetch('/api/watchlist/rescreen', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({add_date: addDate})
-  }).then(r => r.json());
-
-  btn.disabled = false; btn.textContent = '▶ 再次筛选';
-
-  if (!res.ok) { toast(res.msg || '筛选失败'); return; }
-
-  // 存储结果
-  rescreenResult = {};
-  res.results.forEach(r => { rescreenResult[r.code] = r; });
-
-  const passed = res.results.filter(r => r.passed).length;
-  const total  = res.results.length;
-  const periodLabel = {'pre':'盘前','in':'盘中','post':'收盘后'}[res.period] || '';
-  toast(`筛选完成[${periodLabel}]：${passed}/${total} 只通过`);
-
-  // 重新渲染表格（带标记）
-  renderPage();
-}
-
-async function mockBuy() {
-  if (!selectedCodes.size) return;
-  const stocks = allRows
-    .filter(r => selectedCodes.has(r.code))
-    .map(r => ({
-      code:            r.code,
-      name:            r.name || '',
-      current_price:   r.current_price,
-      t_1_low:         r.t_1_low,
-      t_low:           r.t_low,
-      price_vs_t1_pct: r.price_vs_t1_pct,
-      t_low_vs_t1_pct: r.t_low_vs_t1_pct,
-      lookback_days:   r.lookback_days,
-    }));
-  const res = await fetch('/api/position/buy', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({stocks, budget: 10000})
-  }).then(r => r.json());
-  const ok  = res.results.filter(r => r.ok).length;
-  const fail = res.results.filter(r => !r.ok);
-  let msg = `买入成功 ${ok} 只`;
-  if (fail.length) msg += `，${fail.length} 只失败（${fail.map(r=>r.code+':'+r.msg).join('；')}）`;
-  toast(msg);
-  clearSelection();
-}
-
-async function removeSelected() {
-  if (!selectedCodes.size) return;
-  const addDate = document.querySelector('.date-item.active')?.textContent || '';
-  if (!addDate) return;
-  const codes = Array.from(selectedCodes);
-  for (const code of codes) {
-    await fetch('/api/watchlist/delete', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({code, add_date: addDate})
-    });
-  }
-  toast('已移除 ' + codes.length + ' 只');
-  clearSelection();
-  // 刷新当前日期数据
-  const activeEl = document.querySelector('.date-item.active');
-  if (activeEl) selectDate(addDate, activeEl);
-}
-
 function toast(msg) {
   const el = document.getElementById('toast');
   el.textContent = msg; el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2000);
+  setTimeout(() => el.classList.remove('show'), 2500);
 }
 
-loadDates();
+loadPositions();
 </script>
 </body>
 </html>

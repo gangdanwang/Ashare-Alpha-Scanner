@@ -78,6 +78,28 @@ CREATE TABLE IF NOT EXISTS t_watchlist (
     updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_add_date_code (add_date, code)
 ) COMMENT '自选股列表';
+
+CREATE TABLE IF NOT EXISTS t_position (
+    id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+    code             VARCHAR(12)   NOT NULL COMMENT '股票代码（纯数字）',
+    name             VARCHAR(20)   COMMENT '股票名称',
+    buy_date         DATE          NOT NULL COMMENT '买入日期',
+    buy_price        DECIMAL(10,3) COMMENT '成本价',
+    shares           INT           COMMENT '持股数',
+    amount           DECIMAL(12,2) COMMENT '买入金额',
+    t_1_low          DECIMAL(10,3) COMMENT '止损价=T-1日最低',
+    t_low            DECIMAL(10,3) COMMENT 'T日最低价',
+    price_vs_t1_pct  DECIMAL(8,2)  COMMENT '买入价vsT-1最低(%)',
+    t_low_vs_t1_pct  DECIMAL(8,2)  COMMENT 'T最低vsT-1最低(%)',
+    lookback_days    INT           COMMENT '筛选时回看天数',
+    status           VARCHAR(10) DEFAULT 'hold' COMMENT 'hold/profit/loss',
+    sell_price       DECIMAL(10,3) COMMENT '卖出价',
+    sell_date        DATE          COMMENT '卖出日期',
+    pnl_pct          DECIMAL(8,2)  COMMENT '最终盈亏%',
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_code_status (code, status, buy_date)
+) COMMENT '模拟持仓记录';
 """
 
 
@@ -396,3 +418,85 @@ def delete_watchlist_item(code: str, add_date: str):
                 "DELETE FROM t_watchlist WHERE code=%s AND add_date=%s",
                 (code, add_date)
             )
+
+
+def insert_position(row: dict) -> dict:
+    """
+    模拟买入，同一只股票在 hold 状态下只能买一次。
+    返回 {'ok': bool, 'msg': str}
+    """
+    code = row['code']
+    # 检查是否已有持仓中的记录
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM t_position WHERE code=%s AND status='hold'",
+                (code,)
+            )
+            if cur.fetchone():
+                return {'ok': False, 'msg': f'{code} 已有持仓，请先止盈/止损后再买入'}
+            cur.execute("""
+                INSERT INTO t_position
+                    (code, name, buy_date, buy_price, shares, amount,
+                     t_1_low, t_low, price_vs_t1_pct, t_low_vs_t1_pct, lookback_days)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                code, row.get('name',''), row['buy_date'],
+                row['buy_price'], row['shares'], row['amount'],
+                row.get('t_1_low'), row.get('t_low'),
+                row.get('price_vs_t1_pct'), row.get('t_low_vs_t1_pct'),
+                row.get('lookback_days', 20),
+            ))
+    return {'ok': True, 'msg': '买入成功'}
+
+
+def get_positions(status: str = None) -> list[dict]:
+    """查询持仓列表，status=None 返回全部"""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if status:
+                cur.execute(
+                    "SELECT * FROM t_position WHERE status=%s ORDER BY buy_date DESC",
+                    (status,)
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM t_position ORDER BY status ASC, buy_date DESC"
+                )
+            return cur.fetchall()
+
+
+def sell_position(code: str, sell_price: float, sell_type: str) -> dict:
+    """
+    卖出持仓（止盈/止损）。
+    sell_type: 'profit' 或 'loss'
+    """
+    from datetime import date as _date
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM t_position WHERE code=%s AND status='hold'",
+                (code,)
+            )
+            pos = cur.fetchone()
+            if not pos:
+                return {'ok': False, 'msg': f'{code} 无持仓记录'}
+            buy_price = float(pos['buy_price'])
+            pnl_pct   = round((sell_price - buy_price) / buy_price * 100, 2)
+            cur.execute("""
+                UPDATE t_position
+                SET status=%s, sell_price=%s, sell_date=%s, pnl_pct=%s, updated_at=NOW()
+                WHERE code=%s AND status='hold'
+            """, (sell_type, sell_price, _date.today().strftime('%Y-%m-%d'), pnl_pct, code))
+    return {'ok': True, 'pnl_pct': pnl_pct}
+
+
+def update_stop_loss(code: str, stop_loss: float) -> dict:
+    """修改止损价"""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE t_position SET t_1_low=%s, updated_at=NOW() WHERE code=%s AND status='hold'",
+                (stop_loss, code)
+            )
+    return {'ok': True}
