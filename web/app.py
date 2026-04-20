@@ -195,6 +195,12 @@ def month_low():
     return render_template('month_low.html', v=int(time.time()))
 
 
+@app.route('/watchlist')
+def watchlist():
+    import time
+    return render_template('watchlist.html', v=int(time.time()))
+
+
 @app.route('/api/watchlist/add', methods=['POST'])
 def api_watchlist_add():
     data = request.json or {}
@@ -318,9 +324,6 @@ def api_watchlist_rescreen():
         })
 
     return jsonify({'ok': True, 'results': results, 'period': period})
-
-
-@app.route('/month_low')
 
 
 @app.route('/api/month_low/dates')
