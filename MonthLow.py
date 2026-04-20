@@ -189,11 +189,12 @@ def get_stock_names(codes: list[str]) -> dict[str, dict]:
                 # field[61] 是品种类型
                 sec_type = data[61] if len(data) > 61 else ''
 
-                if qcode and len(data) > 3:
+                if qcode and len(data) > 45:
                     result[qcode] = {
-                        'name': data[1],
-                        'price': float(data[3]) if data[3] else 0.0,
-                        'type': sec_type,
+                        'name':       data[1],
+                        'price':      float(data[3]) if data[3] else 0.0,
+                        'type':       sec_type,
+                        'mktcap':     float(data[45]) if data[45] else 0.0,  # 总市值（亿）
                     }
             except:
                 continue
@@ -247,14 +248,33 @@ def filter_by_name(codes: list[str]) -> list[str]:
     
     print()  # 换行
     print(f"✅ 股票信息获取完成，共获取 {len(all_info)} 只股票")
-    print(f"🔍 开始过滤 ST/退市/债券/低价股...")
+    print(f"🔍 开始过滤 ST/退市/债券/低价股/小市值/新股...")
+
+    # 预查缓存表中各股票的最早日期，用于判断上市天数
+    from stock_cache import get_conn as _sc_get_conn
+    listing_days: dict[str, int] = {}
+    try:
+        from db import get_conn as _db_get_conn
+        with _db_get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT code, COUNT(*) as cnt
+                    FROM t_stock_daily
+                    GROUP BY code
+                """)
+                for row in cur.fetchall():
+                    listing_days[row['code']] = row['cnt']
+    except Exception as e:
+        print(f"⚠️  查询上市天数失败，跳过该条件: {e}")
 
     # 过滤
     filtered = []
-    excluded_st = 0       # ST股
-    excluded_delist = 0   # 退市
-    excluded_bond = 0     # 债券/可转债/指数
-    excluded_low = 0      # 低价/问题
+    excluded_st = 0
+    excluded_delist = 0
+    excluded_bond = 0
+    excluded_low = 0
+    excluded_mktcap = 0   # 市值不足
+    excluded_new = 0      # 新股（上市不足60交易日）
     
     total_codes = len(codes)
     processed = 0
@@ -283,9 +303,24 @@ def filter_by_name(codes: list[str]) -> list[str]:
             processed += 1
             continue
 
-        # 低价/问题股：价格 <= 1 元 或 价格为 0
-        if price <= 1.0:
+        # 低价/问题股：价格 <= 3 元
+        if price <= 3.0:
             excluded_low += 1
+            processed += 1
+            continue
+
+        # 市值过小：总市值 <= 30 亿
+        mktcap = info.get('mktcap', 0.0)
+        if mktcap > 0 and mktcap <= 30.0:
+            excluded_mktcap += 1
+            processed += 1
+            continue
+
+        # 新股：缓存中交易日数 < 60（缓存无数据时不过滤，保守处理）
+        pure_code = code.replace('sz', '').replace('sh', '')
+        days_in_cache = listing_days.get(pure_code, 999)
+        if days_in_cache < 60:
+            excluded_new += 1
             processed += 1
             continue
 
@@ -303,10 +338,11 @@ def filter_by_name(codes: list[str]) -> list[str]:
             )
 
     print()  # 换行
-    total_excluded = excluded_st + excluded_delist + excluded_bond + excluded_low
+    total_excluded = excluded_st + excluded_delist + excluded_bond + excluded_low + excluded_mktcap + excluded_new
     print(
         f"✅ 过滤完成：排除 {total_excluded} 只 "
-        f"（ST:{excluded_st} 退市:{excluded_delist} 债券/指数:{excluded_bond} 低价:{excluded_low}），"
+        f"（ST:{excluded_st} 退市:{excluded_delist} 债券/指数:{excluded_bond} "
+        f"低价(≤3元):{excluded_low} 小市值(≤30亿):{excluded_mktcap} 新股(<60日):{excluded_new}），"
         f"剩余 {len(filtered)} 只"
     )
     return filtered
