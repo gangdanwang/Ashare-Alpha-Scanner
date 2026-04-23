@@ -362,81 +362,98 @@ def _fetch_one_for_warmup(code: str, count: int) -> tuple[str, object]:
 
 def _warm_up_cache(codes: list, lookback: int, workers: int = 100):
     """
-    批量预热日线缓存（方案B：读写分离）。
-    第一步：100 并发 HTTP 拉取，结果存内存。
-    第二步：单线程批量写入数据库，彻底消除死锁。
+    增量补全缺失的日线数据（智能识别空洞）。
+    第一步：获取标准交易日历（上证指数）。
+    第二步：并发检查每只股票缺失哪些日期。
+    第三步：只对有缺失的股票拉 API。
+    第四步：合并所有缺失数据，一次 INSERT IGNORE 写入。
     """
-    from stock_cache import get_cached_daily_data, _latest_trade_date, _is_trading_hours, save_daily_data_to_cache
-    from datetime import datetime, timedelta
+    from stock_cache import get_trade_calendar, get_missing_dates, insert_missing_daily_data
+    from datetime import datetime
 
-    need_fetch = []
-    latest_trade = _latest_trade_date()
-    count = lookback + 10
-    start_str = (datetime.now() - timedelta(days=count * 2 + 10)).strftime('%Y-%m-%d')
-    end_str = datetime.now().strftime('%Y-%m-%d')
-
-    for code in codes:
-        xcode = code if code.startswith(('sh', 'sz')) else ('sh' if code.startswith('6') else 'sz') + code
-        df_c = get_cached_daily_data(xcode, start_str, end_str)
-        if len(df_c) < count:
-            need_fetch.append(code)
-            continue
-        cache_latest = df_c.index[-1].strftime('%Y-%m-%d')
-        # 只需历史数据完整（最新缓存日期 >= 最近交易日）
-        if cache_latest < latest_trade:
-            need_fetch.append(code)
-
-    total_need = len(need_fetch)
-    if total_need == 0:
-        print(f"✅ 缓存预热：全部 {len(codes)} 只已命中缓存，跳过 API 请求")
+    # 获取标准交易日历（最近 lookback+10 个交易日）
+    trade_dates = get_trade_calendar(lookback + 10)
+    if not trade_dates:
+        print("⚠️  无法获取交易日历，跳过缓存更新")
         return
 
-    print(f"📦 缓存预热：{len(codes)} 只中有 {total_need} 只需要更新")
+    print(f"📦 缓存更新：基于标准交易日历（{trade_dates[0]} ~ {trade_dates[-1]}）")
 
-    # ── 第一步：并发 HTTP 拉取，结果存内存 ──
-    print(f"  ① 并发拉取中（workers={workers}）...")
-    fetched = []   # [(code, df), ...]
+    # 并发检查每只股票缺失哪些日期
+    need_fetch = {}  # {code: [missing_dates]}
+    total = len(codes)
+    checked = 0
+
+    def check_one(code):
+        pure = code.replace('sz', '').replace('sh', '')
+        missing = get_missing_dates(pure, trade_dates)
+        return (code, missing)
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(check_one, c): c for c in codes}
+        for f in as_completed(futures):
+            code, missing = f.result()
+            if missing:
+                need_fetch[code] = missing
+            checked += 1
+            if checked % 500 == 0 or checked == total:
+                print(f"\r  检查进度: {checked}/{total} ({checked/total*100:.1f}%) 需补数据: {len(need_fetch)} 只",
+                      end="", flush=True)
+
+    print()
+    if not need_fetch:
+        print(f"✅ 缓存完整：全部 {len(codes)} 只数据齐全，跳过 API 请求")
+        return
+
+    print(f"📦 需补数据：{len(need_fetch)}/{len(codes)} 只，开始并发拉取...")
+
+    # 并发拉取 API
+    fetched = []
     completed = 0
     start_t = datetime.now()
 
+    def fetch_one(code):
+        df = _ashare_get_price(code, frequency='1d', count=lookback + 10)
+        return (code, df)
+
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(_fetch_one_for_warmup, c, count): c for c in need_fetch}
+        futures = {ex.submit(fetch_one, c): c for c in need_fetch.keys()}
         for f in as_completed(futures):
             code, df = f.result()
             if df is not None and not df.empty:
-                fetched.append((code, df))
+                fetched.append((code, df, need_fetch[code]))
             completed += 1
             elapsed = (datetime.now() - start_t).total_seconds()
             spd = completed / elapsed if elapsed > 0 else 0
-            rem = max(total_need - completed, 0) / spd if spd > 0 else 0
-            print(f"\r     拉取进度: {completed}/{total_need} ({completed/total_need*100:.1f}%) "
+            rem = max(len(need_fetch) - completed, 0) / spd if spd > 0 else 0
+            print(f"\r  拉取进度: {completed}/{len(need_fetch)} ({completed/len(need_fetch)*100:.1f}%) "
                   f"速度: {spd:.0f}只/秒 剩余: {rem:.0f}秒", end="", flush=True)
 
     elapsed = (datetime.now() - start_t).total_seconds()
-    print(f"\n  ① 拉取完成：{len(fetched)}/{total_need} 只成功（耗时 {elapsed:.1f}秒）")
+    print(f"\n  拉取完成：{len(fetched)}/{len(need_fetch)} 只成功（耗时 {elapsed:.1f}秒）")
 
-    # ── 第二步：单线程合并所有数据，一次批量写入 ──
-    print(f"  ② 合并数据并批量写入（单次 executemany）...")
-    from stock_cache import save_daily_data_to_cache
-    from db import get_conn
+    # 合并所有缺失数据，一次 INSERT IGNORE 写入
     import pandas as pd
-
     all_records = []
-    for code, df in fetched:
+    for code, df, missing_dates in fetched:
         clean_code = code.replace('sz', '').replace('sh', '')
         df_copy = df.copy().reset_index()
         col0 = df_copy.columns[0]
         if col0 != 'time':
             df_copy.rename(columns={col0: 'time'}, inplace=True)
+        # 只取缺失的日期
+        missing_set = set(missing_dates)
         for _, row in df_copy.iterrows():
             td = row.get('time')
             if pd.isna(td):
                 continue
-            td = td.strftime('%Y-%m-%d') if isinstance(td, pd.Timestamp) else str(td).split(' ')[0]
+            td_str = td.strftime('%Y-%m-%d') if isinstance(td, pd.Timestamp) else str(td).split(' ')[0]
+            if td_str not in missing_set:
+                continue  # 跳过已有数据
             try:
                 all_records.append({
                     'code': clean_code, 'name': '',
-                    'trade_date': td,
+                    'trade_date': td_str,
                     'open':   float(row.get('open', 0)),
                     'close':  float(row.get('close', 0)),
                     'high':   float(row.get('high', 0)),
@@ -447,22 +464,10 @@ def _warm_up_cache(codes: list, lookback: int, workers: int = 100):
                 continue
 
     if all_records:
-        sql = """
-            INSERT INTO t_stock_daily (code, name, trade_date, open, close, high, low, volume)
-            VALUES (%(code)s, %(name)s, %(trade_date)s, %(open)s, %(close)s, %(high)s, %(low)s, %(volume)s)
-            ON DUPLICATE KEY UPDATE
-                open=VALUES(open), close=VALUES(close), high=VALUES(high),
-                low=VALUES(low), volume=VALUES(volume), updated_at=NOW()
-        """
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.executemany(sql, all_records)
-        write_ok = len(fetched)
+        inserted = insert_missing_daily_data(all_records)
+        print(f"✅ 缓存更新完成：增量写入 {inserted} 条记录")
     else:
-        write_ok = 0
-
-    elapsed_total = (datetime.now() - start_t).total_seconds()
-    print(f"\n✅ 缓存预热完成：写入 {write_ok} 只（总耗时 {elapsed_total:.1f}秒），第三阶段将直接读库")
+        print("✅ 无需写入（API 返回数据与缺失日期不匹配）")
 
 
 def _ashare_get_price(code, frequency='1d', count=10):

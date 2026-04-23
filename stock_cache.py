@@ -249,6 +249,73 @@ def save_daily_data_to_cache(code: str, df: pd.DataFrame, name: str = ''):
 # ============================================================
 # 对外统一接口（兼容 Ashare.get_price 用法）
 # ============================================================
+# 交易日历缓存（进程级）
+_trade_calendar_cache: list[str] | None = None
+_trade_calendar_lock = threading.Lock()
+
+
+def get_trade_calendar(count: int = 60) -> list[str]:
+    """
+    获取最近 count 个交易日的日期列表（升序）。
+    以上证指数日线为基准，进程内缓存，只查一次。
+    """
+    global _trade_calendar_cache
+    if _trade_calendar_cache is not None and len(_trade_calendar_cache) >= count:
+        return _trade_calendar_cache[-count:]
+    with _trade_calendar_lock:
+        if _trade_calendar_cache is not None and len(_trade_calendar_cache) >= count:
+            return _trade_calendar_cache[-count:]
+        try:
+            df = _ashare_get_price('sh000001', frequency='1d', count=count)
+            if df is not None and not df.empty:
+                _trade_calendar_cache = [d.strftime('%Y-%m-%d') for d in df.index]
+                return _trade_calendar_cache
+        except Exception:
+            pass
+        return []
+
+
+def get_missing_dates(code: str, trade_dates: list[str]) -> list[str]:
+    """
+    返回该股票在 trade_dates 中缺失的日期列表。
+    code: 纯数字代码（不含 sz/sh）
+    trade_dates: 标准交易日列表（YYYY-MM-DD 字符串）
+    """
+    if not trade_dates:
+        return []
+    try:
+        sql = """
+            SELECT trade_date FROM t_stock_daily
+            WHERE code = %s AND trade_date IN ({})
+        """.format(','.join(['%s'] * len(trade_dates)))
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, [code] + trade_dates)
+                existing = {str(r['trade_date']) for r in cur.fetchall()}
+        return [d for d in trade_dates if d not in existing]
+    except Exception:
+        return trade_dates  # 查询失败时保守处理，全部视为缺失
+
+
+def insert_missing_daily_data(records: list[dict]) -> int:
+    """
+    增量写入缺失的日线数据，使用 INSERT IGNORE（已有数据跳过）。
+    records: [{'code','name','trade_date','open','close','high','low','volume'}, ...]
+    """
+    if not records:
+        return 0
+    sql = """
+        INSERT IGNORE INTO t_stock_daily
+            (code, name, trade_date, open, close, high, low, volume)
+        VALUES
+            (%(code)s, %(name)s, %(trade_date)s, %(open)s, %(close)s, %(high)s, %(low)s, %(volume)s)
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.executemany(sql, records)
+    return len(records)
+
+
 def _latest_trade_date() -> str:
     """
     返回最近的交易日日期字符串（YYYY-MM-DD）。
