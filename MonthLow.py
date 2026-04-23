@@ -415,15 +415,51 @@ def _warm_up_cache(codes: list, lookback: int, workers: int = 100):
     elapsed = (datetime.now() - start_t).total_seconds()
     print(f"\n  ① 拉取完成：{len(fetched)}/{total_need} 只成功（耗时 {elapsed:.1f}秒）")
 
-    # ── 第二步：单线程批量写入，彻底消除死锁 ──
-    print(f"  ② 批量写入缓存（单线程）...")
-    write_ok = 0
-    for i, (code, df) in enumerate(fetched):
-        save_daily_data_to_cache(code, df)
-        write_ok += 1
-        if (i + 1) % 100 == 0 or (i + 1) == len(fetched):
-            print(f"\r     写入进度: {i+1}/{len(fetched)} ({(i+1)/len(fetched)*100:.1f}%)",
-                  end="", flush=True)
+    # ── 第二步：单线程合并所有数据，一次批量写入 ──
+    print(f"  ② 合并数据并批量写入（单次 executemany）...")
+    from stock_cache import save_daily_data_to_cache
+    from db import get_conn
+    import pandas as pd
+
+    all_records = []
+    for code, df in fetched:
+        clean_code = code.replace('sz', '').replace('sh', '')
+        df_copy = df.copy().reset_index()
+        col0 = df_copy.columns[0]
+        if col0 != 'time':
+            df_copy.rename(columns={col0: 'time'}, inplace=True)
+        for _, row in df_copy.iterrows():
+            td = row.get('time')
+            if pd.isna(td):
+                continue
+            td = td.strftime('%Y-%m-%d') if isinstance(td, pd.Timestamp) else str(td).split(' ')[0]
+            try:
+                all_records.append({
+                    'code': clean_code, 'name': '',
+                    'trade_date': td,
+                    'open':   float(row.get('open', 0)),
+                    'close':  float(row.get('close', 0)),
+                    'high':   float(row.get('high', 0)),
+                    'low':    float(row.get('low', 0)),
+                    'volume': int(float(row.get('volume', 0))),
+                })
+            except Exception:
+                continue
+
+    if all_records:
+        sql = """
+            INSERT INTO t_stock_daily (code, name, trade_date, open, close, high, low, volume)
+            VALUES (%(code)s, %(name)s, %(trade_date)s, %(open)s, %(close)s, %(high)s, %(low)s, %(volume)s)
+            ON DUPLICATE KEY UPDATE
+                open=VALUES(open), close=VALUES(close), high=VALUES(high),
+                low=VALUES(low), volume=VALUES(volume), updated_at=NOW()
+        """
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(sql, all_records)
+        write_ok = len(fetched)
+    else:
+        write_ok = 0
 
     elapsed_total = (datetime.now() - start_t).total_seconds()
     print(f"\n✅ 缓存预热完成：写入 {write_ok} 只（总耗时 {elapsed_total:.1f}秒），第三阶段将直接读库")
