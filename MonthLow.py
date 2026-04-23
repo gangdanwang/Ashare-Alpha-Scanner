@@ -716,12 +716,17 @@ def pick_month_low_stocks():
         return pd.DataFrame()
     print(f"✅ 第二阶段完成：剩余 {len(stocks)} 只股票（耗时 {elapsed:.2f}秒）")
 
-    # ── 第三步：SQL 批量筛选 T-1 日创近 N 日新低的股票 ──
+    # ── 第三步：更新缓存 + SQL 批量筛选 T-1 日创近 N 日新低的股票 ──
     print("\n" + "=" * 60)
     lookback = CONFIG["filter"]["lookback_days"]
     print(f"🔍 第三阶段：SQL 筛选 T-1 日创近{lookback}日新低的股票")
     print("=" * 60)
     print(f"📋 窗口：ROWS BETWEEN {lookback-1} PRECEDING AND CURRENT ROW（近{lookback}日）")
+
+    perf = CONFIG["performance"]
+
+    # 先更新缓存（确保 t_stock_daily 数据是最新的）
+    _warm_up_cache(stocks, lookback, int(perf["screen_workers"]))
 
     from db import get_month_low_candidates
     start_time = datetime.now()
