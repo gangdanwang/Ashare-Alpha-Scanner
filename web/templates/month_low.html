@@ -6,57 +6,115 @@
   <title>MonthLow · 近N日低点选股</title>
   <style>
     :root {
-      --blue:#1664FF; --blue-lt:#E8F0FF; --green:#00B42A; --red:#F53F3F;
-      --text1:#1D2129; --text2:#4E5969; --text3:#86909C;
-      --border:#E5E6EB; --bg:#F2F3F5; --white:#FFFFFF; --radius:8px;
+      --bg:#050505;
+      --bg-2:#0d0d0f;
+      --panel:#141416;
+      --panel-strong:#19191c;
+      --panel-soft:#101012;
+      --line:#232327;
+      --line-2:#2d2d33;
+      --text1:#f5f5f7;
+      --text2:#b8b8c2;
+      --text3:#73737c;
+      --blue:#8a72ff;
+      --blue-strong:#775cff;
+      --blue-lt:rgba(123,97,255,.16);
+      --green:#21e6a6;
+      --red:#ff5f7a;
+      --amber:#ffc96b;
+      --white:#ffffff;
+      --shadow:0 18px 40px rgba(0,0,0,.28);
+      --radius:18px;
     }
     * { box-sizing:border-box; margin:0; padding:0; }
     body { font-family:"PingFang SC","Helvetica Neue",Arial,sans-serif;
-           background:var(--bg); color:var(--text1);
-           height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+           background:
+             radial-gradient(circle at top center, rgba(123,97,255,.08), transparent 18%),
+             linear-gradient(180deg, #090909 0%, #040404 100%);
+           color:var(--text1); min-height:100vh; overflow:hidden; }
 
-    /* 顶栏 */
-    .topbar { background:var(--white); border-bottom:1px solid var(--border);
-              padding:0 24px; height:52px; display:flex; align-items:center;
-              gap:16px; flex-shrink:0; box-shadow:0 1px 4px rgba(0,0,0,.06); }
-    .topbar-logo { font-size:15px; font-weight:700; color:var(--blue); display:flex; align-items:center; gap:6px; }
-    .topbar-sub  { font-size:13px; color:var(--text3); border-left:1px solid var(--border); padding-left:16px; }
-    .topbar-back { margin-left:auto; font-size:13px; color:var(--blue); text-decoration:none; }
-    .topbar-back:hover { opacity:.8; }
+    .app-shell { display:flex; min-height:100vh; }
+    .sidebar {
+      width:220px; flex-shrink:0; padding:24px 14px;
+      background:linear-gradient(180deg, #101012, #09090a);
+      border-right:1px solid var(--line);
+      box-shadow:inset -1px 0 0 rgba(255,255,255,.03);
+      display:flex; flex-direction:column;
+    }
+    .menu-card {
+      flex:1;
+      background:#121214; border:1px solid var(--line);
+      border-radius:20px; padding:18px; box-shadow:var(--shadow);
+      display:flex; flex-direction:column;
+    }
+    .menu-title {
+      font-size:11px; text-transform:uppercase; letter-spacing:.16em; color:var(--text3);
+      margin-bottom:14px;
+    }
+    .tree { position:relative; padding-left:12px; }
+    .tree::before {
+      content:""; position:absolute; left:5px; top:8px; bottom:8px; width:1px;
+      background:linear-gradient(180deg, rgba(138,114,255,.45), rgba(138,114,255,0));
+    }
+    .tree-link {
+      position:relative; display:flex; align-items:center; gap:10px; margin-bottom:10px;
+      padding:12px 14px 12px 18px; border-radius:14px; color:var(--text2); text-decoration:none;
+      border:1px solid transparent; transition:all .18s ease;
+      background:rgba(255,255,255,.015);
+    }
+    .tree-link::before {
+      content:""; position:absolute; left:-11px; top:50%; width:14px; height:1px;
+      background:rgba(138,114,255,.45);
+    }
+    .tree-link:hover {
+      color:var(--text1); border-color:rgba(138,114,255,.2); background:rgba(255,255,255,.035);
+      transform:translateX(2px);
+    }
+    .tree-link.active {
+      color:var(--text1);
+      background:linear-gradient(135deg, rgba(123,97,255,.18), rgba(123,97,255,.08));
+      border-color:rgba(138,114,255,.34);
+      box-shadow:0 0 0 1px rgba(138,114,255,.08) inset, 0 12px 24px rgba(0,0,0,.28);
+    }
+    .tree-link span:last-child { font-weight:600; }
 
-    /* 主体：左1/3 + 右2/3 */
-    .layout { display:flex; flex:1; overflow:hidden; }
+    .workspace {
+      flex:1; min-width:0; padding:24px; display:flex; flex-direction:column; overflow:hidden;
+    }
+
+    .layout { display:flex; flex:1; gap:18px; min-height:0; overflow:hidden; }
 
     /* 左侧面板 */
-    .left-panel { width:33.333%; border-right:1px solid var(--border);
-                  background:var(--white); display:flex; flex-direction:column;
-                  overflow-y:auto; flex-shrink:0; }
-    .panel-section { padding:16px; border-bottom:1px solid var(--border); }
-    .panel-section:last-child { border-bottom:none; }
+    .left-panel { width:320px; display:flex; flex-direction:column;
+                  overflow:hidden; flex-shrink:0; gap:16px; padding-right:4px; min-height:0; }
+    .panel-section {
+      padding:18px; border:1px solid rgba(86,111,160,.2);
+      background:linear-gradient(180deg, #141416, #101012);
+      border-radius:22px; box-shadow:var(--shadow); min-height:0; flex-shrink:0;
+    }
     .section-title { font-size:13px; font-weight:600; color:var(--text2);
                      margin-bottom:12px; display:flex; align-items:center; gap:6px; }
 
     /* 筛选条件 */
     .filter-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
     .filter-label { font-size:13px; color:var(--text2); white-space:nowrap; }
-    .filter-input { width:64px; height:32px; border:1px solid var(--border);
-                    border-radius:var(--radius); padding:0 8px; font-size:14px;
-                    color:var(--text1); outline:none; text-align:center; }
-    .filter-input:focus { border-color:var(--blue); box-shadow:0 0 0 2px var(--blue-lt); }
+    .filter-input { width:72px; height:36px; border:1px solid var(--line-2);
+                    border-radius:12px; padding:0 8px; font-size:14px;
+                    background:rgba(255,255,255,.03); color:var(--text1); outline:none; text-align:center; }
+    .filter-input:focus { border-color:var(--blue-strong); box-shadow:0 0 0 3px rgba(47,140,255,.12); }
     .filter-unit { font-size:13px; color:var(--text3); }
 
     /* 日期选择 */
-    .date-list { display:flex; flex-direction:column; gap:4px; }
-    .date-item { padding:8px 12px; border-radius:var(--radius); cursor:pointer;
-                 font-size:13px; color:var(--text2); transition:all .15s;
-                 border:1px solid transparent; }
-    .date-item:hover { background:var(--bg); color:var(--blue); }
-    .date-item.active { background:var(--blue-lt); color:var(--blue);
-                        border-color:var(--blue); font-weight:600; }
+    .date-picker {
+      width:100%; height:40px; border:1px solid var(--line-2); border-radius:12px;
+      padding:0 12px; background:rgba(255,255,255,.03); color:var(--text1); outline:none;
+      font-size:14px;
+    }
+    .picker-hint { margin-top:10px; font-size:12px; color:var(--text3); line-height:1.6; }
 
     /* 统计 */
-    .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    .stat-card { background:var(--bg); border-radius:var(--radius); padding:10px 12px; }
+    .stat-grid { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:8px; }
+    .stat-card { background:rgba(255,255,255,.03); border-radius:16px; padding:12px; border:1px solid rgba(88,112,160,.14); }
     .stat-label { font-size:11px; color:var(--text3); margin-bottom:4px; }
     .stat-val { font-size:18px; font-weight:700; color:var(--text1); }
     .stat-val.blue  { color:var(--blue); }
@@ -64,41 +122,56 @@
     .stat-val.red   { color:var(--red); }
 
     /* 日志 */
-    .log-box { background:#1D2129; border-radius:var(--radius); padding:12px;
+    .log-panel {
+      flex:1 1 auto; min-height:0; display:flex; flex-direction:column; overflow:hidden;
+    }
+    .log-box { background:rgba(4,10,18,.9); border:1px solid rgba(80,105,150,.16); border-radius:16px; padding:12px;
                font-family:"SF Mono","Fira Code",monospace; font-size:11px;
-               color:#C9CDD4; max-height:220px; overflow-y:auto;
+               color:#C9CDD4; flex:1; min-height:0; overflow-y:auto;
                white-space:pre-wrap; word-break:break-all; }
+    .log-box::-webkit-scrollbar { width:8px; }
+    .log-box::-webkit-scrollbar-thumb { background:rgba(138,114,255,.35); border-radius:999px; }
+    .log-box::-webkit-scrollbar-track { background:rgba(255,255,255,.03); border-radius:999px; }
     .log-done { color:#00B42A; } .log-err { color:#F53F3F; }
 
     /* 按钮 */
     .btn { display:inline-flex; align-items:center; gap:6px; padding:7px 16px;
-           border-radius:var(--radius); border:none; cursor:pointer; font-size:13px;
+           border-radius:14px; border:none; cursor:pointer; font-size:13px;
            font-weight:500; transition:all .15s; }
     .btn:disabled { opacity:.5; cursor:not-allowed; }
-    .btn-primary { background:var(--blue); color:var(--white); width:100%; justify-content:center; }
-    .btn-primary:hover:not(:disabled) { background:#0052D9; }
-    .btn-ghost { background:var(--white); color:var(--blue); border:1px solid var(--blue); }
+    .btn-primary {
+      background:linear-gradient(135deg, #6f57ff, #8a72ff);
+      color:#f8f7ff; justify-content:center; font-weight:700;
+      box-shadow:0 10px 28px rgba(111,87,255,.24);
+    }
+    .btn-primary:hover:not(:disabled) { filter:brightness(1.05); transform:translateY(-1px); }
+    .btn-ghost { background:rgba(255,255,255,.03); color:var(--blue); border:1px solid rgba(138,114,255,.24); }
     .btn-ghost:hover:not(:disabled) { background:var(--blue-lt); }
 
     /* 右侧内容 */
-    .right-panel { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+    .right-panel {
+      flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden;
+      background:linear-gradient(180deg, #111113, #09090b);
+      border:1px solid rgba(86,111,160,.2); border-radius:24px; box-shadow:var(--shadow);
+    }
 
     /* 表格区 */
     .table-wrap { flex:1; overflow-y:auto; }
-    .table-header { padding:14px 20px; border-bottom:1px solid var(--border);
+    .table-header { padding:18px 22px; border-bottom:1px solid var(--line);
                     display:flex; align-items:center; justify-content:space-between;
-                    background:var(--white); flex-shrink:0; }
+                    background:rgba(255,255,255,.015); flex-shrink:0; gap:16px; flex-wrap:wrap; }
     .table-title { font-size:15px; font-weight:600; color:var(--text1); }
     .table-count { font-size:13px; color:var(--text3); }
 
     table { width:100%; border-collapse:collapse; font-size:13px; }
-    thead th { background:#F7F8FA; color:var(--text2); font-weight:500;
-               padding:10px 14px; text-align:left; border-bottom:1px solid var(--border);
+    thead th { background:#0f0f12; color:var(--text3); font-weight:500;
+               padding:12px 14px; text-align:left; border-bottom:1px solid var(--line);
                white-space:nowrap; position:sticky; top:0; z-index:1; }
-    tbody tr { border-bottom:1px solid var(--border); transition:background .1s; }
+    tbody tr { border-bottom:1px solid rgba(32,47,78,.72); transition:background .1s; }
     tbody tr:last-child { border-bottom:none; }
-    tbody tr:hover { background:#F7F8FA; }
-    tbody td { padding:10px 14px; white-space:nowrap; }
+    tbody tr:hover { background:rgba(255,255,255,.02); }
+    tbody tr.empty-row:hover { background:transparent; }
+    tbody td { padding:12px 14px; white-space:nowrap; color:var(--text2); }
 
     .code-cell { font-family:"SF Mono",monospace; font-weight:600; color:var(--blue);
                  font-size:13px; cursor:pointer; text-decoration:underline dotted; }
@@ -109,19 +182,19 @@
     .pct-zero { color:var(--text3); }
 
     /* 分页 */
-    .pagination { padding:12px 20px; border-top:1px solid var(--border);
+    .pagination { padding:14px 20px; border-top:1px solid var(--line);
                   display:flex; align-items:center; justify-content:space-between;
-                  background:var(--white); flex-shrink:0; }
+                  background:rgba(255,255,255,.015); flex-shrink:0; }
     .page-info { font-size:13px; color:var(--text3); }
     .page-btns { display:flex; gap:4px; }
-    .page-btn { width:32px; height:32px; border-radius:var(--radius);
-                border:1px solid var(--border); background:var(--white);
+    .page-btn { width:34px; height:34px; border-radius:12px;
+                border:1px solid var(--line-2); background:rgba(255,255,255,.03);
                 color:var(--text2); cursor:pointer; font-size:13px;
                 display:flex; align-items:center; justify-content:center;
                 transition:all .15s; }
     .page-btn:hover { border-color:var(--blue); color:var(--blue); }
-    .page-btn.active { background:var(--blue); border-color:var(--blue);
-                       color:var(--white); font-weight:600; }
+    .page-btn.active { background:linear-gradient(135deg, #6f57ff, #8a72ff); border-color:transparent;
+                       color:#f8f7ff; font-weight:700; }
     .page-btn:disabled { opacity:.4; cursor:not-allowed; }
 
     .empty-state { padding:64px 0; text-align:center; color:var(--text3); }
@@ -129,8 +202,8 @@
     .empty-state p { font-size:14px; }
 
     /* K线浮层 */
-    #kline-popup { position:fixed; z-index:500; background:var(--white);
-                   border:1px solid var(--border); border-radius:var(--radius);
+    #kline-popup { position:fixed; z-index:500; background:#0b1628;
+                   border:1px solid var(--line-2); border-radius:16px;
                    box-shadow:0 8px 24px rgba(0,0,0,.12); padding:10px;
                    display:none; pointer-events:none; }
     #kline-popup .kline-title { font-size:12px; color:var(--text2);
@@ -143,21 +216,34 @@
              border-radius:20px; font-size:13px; opacity:0; transition:opacity .3s;
              pointer-events:none; z-index:999; white-space:nowrap; }
     #toast.show { opacity:1; }
+
+    @media (max-width: 1100px) {
+      .app-shell { flex-direction:column; }
+      .sidebar {
+        width:auto; padding:16px 16px 10px; border-right:none; border-bottom:1px solid rgba(92,122,173,.18);
+      }
+      .workspace { padding:16px; }
+      .layout { flex-direction:column; }
+      .left-panel, .right-panel { width:auto; }
+      .stat-grid { grid-template-columns:1fr 1fr; }
+    }
   </style>
 </head>
 <body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="menu-card">
+      <div class="menu-title">系统菜单</div>
+      <div class="tree">
+        <a class="tree-link active" href="/month_low"><span>📉</span><span>筛选</span></a>
+        <a class="tree-link" href="/watchlist"><span>📌</span><span>自选</span></a>
+        <a class="tree-link" href="/position"><span>💼</span><span>持仓</span></a>
+      </div>
+    </div>
+  </aside>
 
-<div class="topbar">
-  <div class="topbar-logo"><span>📉</span> MonthLow</div>
-  <div class="topbar-sub">近N日低点反弹选股</div>
-  <nav style="margin-left:auto;display:flex;gap:4px">
-    <a href="/month_low" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;background:var(--blue);color:#fff;text-decoration:none">📉 筛选</a>
-    <a href="/watchlist" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:none;border:1px solid var(--border)">📌 自选</a>
-    <a href="/position" style="padding:6px 14px;border-radius:6px;font-size:13px;font-weight:500;color:var(--blue);text-decoration:none;border:1px solid var(--border)">💼 持仓</a>
-  </nav>
-</div>
-
-<div class="layout">
+  <main class="workspace">
+    <div class="layout">
 
   <!-- 左侧面板 -->
   <div class="left-panel">
@@ -167,10 +253,10 @@
       <div class="section-title">⚙️ 筛选条件</div>
       <div class="filter-row">
         <span class="filter-label">近</span>
-        <input class="filter-input" type="number" id="input-lookback" value="20" min="1" max="250" />
+        <input class="filter-input" type="number" id="input-lookback" value="10" min="1" max="250" />
         <span class="filter-unit">个交易日新低</span>
       </div>
-      <button class="btn btn-primary" id="btn-run" onclick="runScan()" style="margin-top:4px">▶ 立即扫描</button>
+      <button class="btn btn-primary" id="btn-run" onclick="runScan()" style="margin-top:4px;width:100%">▶ 立即扫描</button>
     </div>
 
     <!-- 日期选择 -->
@@ -179,13 +265,21 @@
         📅 历史日期
         <span style="font-size:12px;font-weight:400;color:var(--text3);cursor:pointer" onclick="loadDates()">↻ 刷新</span>
       </div>
-      <div class="date-list" id="date-list">
-        <div style="color:var(--text3);font-size:13px">加载中...</div>
-      </div>
+      <input class="date-picker" type="date" id="date-picker" onchange="onDatePicked(this.value)" />
+      <div class="picker-hint" id="date-picker-hint">加载中...</div>
     </div>
 
-    <!-- 统计 -->
-    <div class="panel-section" id="stat-section" style="display:none">
+    <!-- 扫描日志 -->
+    <div class="panel-section log-panel" id="log-section" style="display:none">
+      <div class="section-title">📋 扫描日志</div>
+      <div class="log-box" id="log-panel"></div>
+    </div>
+
+  </div>
+
+  <!-- 右侧结果 -->
+  <div class="right-panel">
+    <div class="panel-section" id="stat-section" style="display:none;border:none;border-bottom:1px solid var(--line);border-radius:0;box-shadow:none;background:transparent">
       <div class="section-title">📊 本次统计</div>
       <div class="stat-grid">
         <div class="stat-card">
@@ -206,17 +300,6 @@
         </div>
       </div>
     </div>
-
-    <!-- 扫描日志 -->
-    <div class="panel-section" id="log-section" style="display:none">
-      <div class="section-title">📋 扫描日志</div>
-      <div class="log-box" id="log-panel"></div>
-    </div>
-
-  </div>
-
-  <!-- 右侧结果 -->
-  <div class="right-panel">
     <div class="table-header">
       <span class="table-title">筛选结果</span>
       <span class="table-count" id="table-count"></span>
@@ -224,19 +307,19 @@
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2)">
           T最低vsT-1 ≥
           <input type="number" id="filter-t-low-pct" value="1" min="0" max="100" step="0.5"
-                 style="width:56px;height:28px;border:1px solid var(--border);border-radius:6px;padding:0 6px;font-size:13px;text-align:center;outline:none"
+                 style="width:56px;height:28px;border:1px solid var(--line-2);background:rgba(255,255,255,.03);color:var(--text1);border-radius:8px;padding:0 6px;font-size:13px;text-align:center;outline:none"
                  oninput="applyFilters()">
           <span style="color:var(--text3)">%</span>
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2)">
           当前vsT-1 ≤
           <input type="number" id="filter-price-pct" value="5" min="0" max="100" step="0.5"
-                 style="width:56px;height:28px;border:1px solid var(--border);border-radius:6px;padding:0 6px;font-size:13px;text-align:center;outline:none"
+                 style="width:56px;height:28px;border:1px solid var(--line-2);background:rgba(255,255,255,.03);color:var(--text1);border-radius:8px;padding:0 6px;font-size:13px;text-align:center;outline:none"
                  oninput="applyFilters()">
           <span style="color:var(--text3)">%</span>
         </label>
       </div>
-      <div id="select-toolbar" style="display:none;margin-left:auto;display:flex;align-items:center;gap:10px">
+      <div id="select-toolbar" style="display:none;margin-left:auto;align-items:center;gap:10px">
         <span style="font-size:13px;color:var(--text3)">已选 <b id="sel-count">0</b> 只</span>
         <button class="btn btn-ghost" onclick="clearSelection()" style="padding:5px 12px;font-size:12px">取消全选</button>
         <button class="btn btn-primary" onclick="addToWatchlist()" style="padding:5px 14px;font-size:12px">📌 加入自选</button>
@@ -254,6 +337,8 @@
     </div>
   </div>
 
+    </div>
+  </main>
 </div>
 
 <div id="kline-popup">
@@ -263,35 +348,48 @@
 <div id="toast"></div>
 
 <script>
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
+let sourceRows = [];
 let allRows = [];
 let currentPage = 1;
 let selectedCodes = new Set();  // 跨分页保持选中状态
+let availableDates = [];
+let currentSelectedDate = '';
+let monthLowLogES = null;
 
 // ── 日期列表 ──
 async function loadDates() {
   const dates = await fetch('/api/month_low/dates').then(r => r.json());
-  const list = document.getElementById('date-list');
-  list.innerHTML = '';
+  availableDates = dates || [];
+  const picker = document.getElementById('date-picker');
+  const hint = document.getElementById('date-picker-hint');
   if (!dates.length) {
-    list.innerHTML = '<div style="color:var(--text3);font-size:13px">暂无数据，请先扫描</div>';
+    picker.value = '';
+    hint.textContent = '暂无历史数据，请先扫描';
     return;
   }
-  dates.forEach((d, i) => {
-    const el = document.createElement('div');
-    el.className = 'date-item' + (i === 0 ? ' active' : '');
-    el.textContent = d;
-    el.onclick = () => selectDate(d, el);
-    list.appendChild(el);
-  });
-  selectDate(dates[0], list.querySelector('.date-item'));
+  picker.min = dates[dates.length - 1];
+  picker.max = dates[0];
+  picker.value = dates[0];
+  hint.textContent = '可选日期范围：' + dates[dates.length - 1] + ' 至 ' + dates[0];
+  selectDate(dates[0]);
 }
 
-async function selectDate(d, el) {
-  document.querySelectorAll('.date-item').forEach(e => e.classList.remove('active'));
-  el.classList.add('active');
+function onDatePicked(value) {
+  if (!value) return;
+  if (!availableDates.includes(value)) {
+    toast('该日期没有筛选结果');
+    document.getElementById('date-picker').value = currentSelectedDate || (availableDates[0] || '');
+    return;
+  }
+  selectDate(value);
+}
+
+async function selectDate(d) {
+  currentSelectedDate = d;
+  document.getElementById('date-picker').value = d;
   const rows = await fetch('/api/month_low/' + d).then(r => r.json());
-  allRows = rows;
+  sourceRows = rows;
   currentPage = 1;
   selectedCodes.clear();
   updateSelToolbar();
@@ -342,6 +440,14 @@ function renderPage() {
       '<td style="color:var(--text3)">' + (r.lookback_days||'-') + '</td>' +
       '</tr>';
   });
+  for (let i = pageRows.length; i < PAGE_SIZE; i++) {
+    const idx = start + i + 1;
+    html += '<tr class="empty-row">' +
+      '<td class="td-check"></td>' +
+      '<td style="color:var(--text3)">' + idx + '</td>' +
+      '<td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>' +
+      '</tr>';
+  }
   wrap.innerHTML = html + '</tbody></table>';
 
   // 分页控件
@@ -378,17 +484,13 @@ function renderPage() {
 function applyFilters() {
   const tLowMin  = parseFloat(document.getElementById('filter-t-low-pct').value)  || 0;
   const priceMax = parseFloat(document.getElementById('filter-price-pct').value) ?? 100;
-  const filtered = allRows.filter(r => {
+  allRows = sourceRows.filter(r => {
     const p1 = Number(r.price_vs_t1_pct);
     const p2 = Number(r.t_low_vs_t1_pct);
     return p2 >= tLowMin && p1 <= priceMax;
   });
-  // 临时替换渲染数据（不修改 allRows）
-  const saved = allRows;
-  allRows = filtered;
   currentPage = 1;
   renderPage();
-  allRows = saved;
 }
 
 function pctClass(v) { return v > 0 ? 'pct-pos' : v < 0 ? 'pct-neg' : 'pct-zero'; }
@@ -411,27 +513,17 @@ function renderStats(rows) {
 }
 
 // ── 扫描 ──
-async function runScan() {
-  const lookback = parseInt(document.getElementById('input-lookback').value) || 10;
-  if (lookback < 1 || lookback > 250) { toast('回看天数请填 1~250'); return; }
+function attachMonthLowLogStream({ reset = false } = {}) {
   const btn = document.getElementById('btn-run');
-  btn.disabled = true; btn.textContent = '⏳ 扫描中...';
   const logSec = document.getElementById('log-section');
   const panel  = document.getElementById('log-panel');
-  logSec.style.display = 'block'; panel.innerHTML = '';
+  logSec.style.display = 'flex';
+  if (reset) panel.innerHTML = '';
 
-  const data = await fetch('/api/month_low/run', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({lookback_days: lookback})
-  }).then(r => r.json());
+  if (monthLowLogES) monthLowLogES.close();
+  monthLowLogES = new EventSource('/api/month_low/log');
 
-  if (!data.ok) {
-    panel.innerHTML = '<span class="log-err">' + data.msg + '</span>';
-    btn.disabled = false; btn.textContent = '▶ 立即扫描'; return;
-  }
-
-  const es = new EventSource('/api/month_low/log');
-  es.onmessage = (e) => {
+  monthLowLogES.onmessage = (e) => {
     const line = e.data;
     if (line === '__START__' || line === '__HEARTBEAT__') return;
     if (line.startsWith('__DONE__')) {
@@ -439,14 +531,57 @@ async function runScan() {
       const el = document.createElement('div');
       el.className = code === '0' ? 'log-done' : 'log-err';
       el.textContent = code === '0' ? '✅ 扫描完成' : '❌ 扫描异常退出';
-      panel.appendChild(el); panel.scrollTop = panel.scrollHeight;
-      es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描';
-      loadDates(); return;
+      panel.appendChild(el);
+      panel.scrollTop = panel.scrollHeight;
+      monthLowLogES.close();
+      monthLowLogES = null;
+      btn.disabled = false;
+      btn.textContent = '▶ 立即扫描';
+      loadDates();
+      return;
     }
     const el = document.createElement('div');
-    el.textContent = line; panel.appendChild(el); panel.scrollTop = panel.scrollHeight;
+    el.textContent = line;
+    panel.appendChild(el);
+    panel.scrollTop = panel.scrollHeight;
   };
-  es.onerror = () => { es.close(); btn.disabled = false; btn.textContent = '▶ 立即扫描'; };
+
+  monthLowLogES.onerror = () => {
+    if (monthLowLogES) monthLowLogES.close();
+    monthLowLogES = null;
+    btn.disabled = false;
+    btn.textContent = '▶ 立即扫描';
+  };
+}
+
+async function runScan() {
+  const lookback = parseInt(document.getElementById('input-lookback').value) || 10;
+  if (lookback < 1 || lookback > 250) { toast('回看天数请填 1~250'); return; }
+  const btn = document.getElementById('btn-run');
+  btn.disabled = true; btn.textContent = '⏳ 扫描中...';
+  const logSec = document.getElementById('log-section');
+  const panel  = document.getElementById('log-panel');
+  logSec.style.display = 'flex'; panel.innerHTML = '';
+
+  const data = await fetch('/api/month_low/run', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({lookback_days: lookback})
+  }).then(r => r.json());
+
+  if (!data.ok) {
+    if (data.msg && data.msg.includes('扫描正在进行中')) {
+      const el = document.createElement('div');
+      el.className = 'log-done';
+      el.textContent = '已接入当前正在执行的扫描日志...';
+      panel.appendChild(el);
+      attachMonthLowLogStream({ reset: false });
+      return;
+    }
+    panel.innerHTML = '<span class="log-err">' + data.msg + '</span>';
+    btn.disabled = false; btn.textContent = '▶ 立即扫描'; return;
+  }
+
+  attachMonthLowLogStream({ reset: false });
 }
 
 // ── K线浮层（事件委托，避免内联引号问题）──
@@ -520,7 +655,7 @@ async function addToWatchlist() {
   if (!selectedCodes.size) return;
   // 找到选中股票的完整数据
   const codeSet = selectedCodes;
-  const rows = allRows.filter(r => codeSet.has(r.code)).map(r => ({
+  const rows = sourceRows.filter(r => codeSet.has(r.code)).map(r => ({
     code:            r.code,
     name:            r.name || '',
     current_price:   r.current_price,
@@ -529,7 +664,7 @@ async function addToWatchlist() {
     price_vs_t1_pct: r.price_vs_t1_pct,
     t_low_vs_t1_pct: r.t_low_vs_t1_pct,
     lookback_days:   r.lookback_days,
-    scan_date:       document.querySelector('.date-item.active')?.textContent || '',
+    scan_date:       currentSelectedDate || '',
   }));
   const today = new Date().toISOString().slice(0, 10);
   const res = await fetch('/api/watchlist/add', {
@@ -551,7 +686,21 @@ function toast(msg) {
   setTimeout(() => el.classList.remove('show'), 2000);
 }
 
+async function resumeRunningMonthLowScan() {
+  const status = await fetch('/api/month_low/status').then(r => r.json()).catch(() => ({running:false}));
+  if (!status.running) return;
+  const btn = document.getElementById('btn-run');
+  const panel = document.getElementById('log-panel');
+  const logSec = document.getElementById('log-section');
+  btn.disabled = true;
+  btn.textContent = '⏳ 扫描中...';
+  logSec.style.display = 'flex';
+  panel.innerHTML = '<div>已恢复当前扫描日志...</div>';
+  attachMonthLowLogStream({ reset: false });
+}
+
 loadDates();
+resumeRunningMonthLowScan();
 </script>
 </body>
 </html>

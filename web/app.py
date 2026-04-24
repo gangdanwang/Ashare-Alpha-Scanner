@@ -1,13 +1,12 @@
 """
-Flask Web 后端：人工二次筛选 + 模拟买入
+Flask Web 后端：MonthLow + 自选 + 持仓
 """
 import sys, os, subprocess, threading, queue, time, requests
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from flask import Flask, jsonify, request, render_template, Response
+from flask import Flask, jsonify, request, render_template, Response, redirect
 from datetime import date
-from db import get_scan_results, update_selection, insert_mock_trades, get_mock_trades, get_recent_dates, \
-               get_month_low_results, get_month_low_dates, \
+from db import get_month_low_results, get_month_low_dates, \
                upsert_watchlist, get_watchlist, get_watchlist_dates, delete_watchlist_item, \
                insert_position, get_positions, sell_position, update_stop_loss
 
@@ -21,14 +20,7 @@ with app.app_context():
     except Exception as _e:
         print(f'[warn] init_db: {_e}')
 
-# 全局扫描状态
-_scan_state = {
-    'running': False,
-    'log': queue.Queue(),
-}
-
 PYTHON = sys.executable
-ALPHA2 = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Alpha2.py')
 MONTH_LOW = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'MonthLow.py')
 
 # MonthLow 扫描状态
@@ -40,38 +32,7 @@ _ml_state = {
 
 @app.route('/')
 def index():
-    return render_template('index.html')
-
-
-@app.route('/api/dates')
-def api_dates():
-    return jsonify(get_recent_dates(20))
-
-
-@app.route('/api/scan/<trade_date>')
-def api_scan(trade_date):
-    return jsonify(get_scan_results(trade_date))
-
-
-@app.route('/api/select', methods=['POST'])
-def api_select():
-    data = request.json
-    update_selection(data['id'], data['selected'])
-    return jsonify({'ok': True})
-
-
-@app.route('/api/mock_buy', methods=['POST'])
-def api_mock_buy():
-    data       = request.json
-    trade_date = data.get('trade_date', date.today().strftime('%Y-%m-%d'))
-    ids        = data.get('ids')  # 可选：指定 record id 列表
-    trades     = insert_mock_trades(trade_date, ids=ids)
-    return jsonify({'ok': True, 'trades': trades})
-
-
-@app.route('/api/trades/<trade_date>')
-def api_trades(trade_date):
-    return jsonify(get_mock_trades(trade_date))
+    return redirect('/month_low')
 
 
 @app.route('/api/market_overview')
@@ -257,8 +218,6 @@ def api_position_refresh_prices():
         })
 
     return jsonify({'ok': True, 'results': results, 'period': period})
-    import time
-    return render_template('watchlist.html', v=int(time.time()))
 
 
 @app.route('/month_low')
@@ -461,55 +420,6 @@ def api_ml_log():
 @app.route('/api/month_low/status')
 def api_ml_status():
     return jsonify({'running': _ml_state['running']})
-    return jsonify({'running': _scan_state['running']})
-
-
-@app.route('/api/run_scan', methods=['POST'])
-def api_run_scan():
-    if _scan_state['running']:
-        return jsonify({'ok': False, 'msg': '扫描正在进行中'})
-    
-    def _run():
-        _scan_state['running'] = True
-        # 清空旧日志
-        while not _scan_state['log'].empty():
-            _scan_state['log'].get_nowait()
-        try:
-            proc = subprocess.Popen(
-                [PYTHON, ALPHA2],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            for line in proc.stdout:
-                _scan_state['log'].put(line.rstrip())
-            proc.wait()
-            _scan_state['log'].put(f'__DONE__:{proc.returncode}')
-        except Exception as e:
-            _scan_state['log'].put(f'[错误] {e}')
-            _scan_state['log'].put('__DONE__:1')
-        finally:
-            _scan_state['running'] = False
-
-    threading.Thread(target=_run, daemon=True).start()
-    return jsonify({'ok': True})
-
-
-@app.route('/api/scan_log')
-def api_scan_log():
-    """SSE 实时推送扫描日志"""
-    def stream():
-        yield 'data: __START__\n\n'
-        while True:
-            try:
-                line = _scan_state['log'].get(timeout=30)
-                yield f'data: {line}\n\n'
-                if line.startswith('__DONE__'):
-                    break
-            except queue.Empty:
-                yield 'data: __HEARTBEAT__\n\n'
-    return Response(stream(), mimetype='text/event-stream')
 
 
 if __name__ == '__main__':

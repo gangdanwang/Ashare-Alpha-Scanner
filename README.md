@@ -1,4 +1,6 @@
-# Ashare ( 开源 极简 A股实时行情数据API)
+# Ashare / MonthLow
+
+> 当前仓库已按 `MonthLow + 自选 + 持仓` 主链整理；与该链路无关的 Alpha 策略、示例、调度和测试脚本已统一归档到 [archive/monthlow_unused](/Users/mrfan/dev/ai-dev/Ashare/Ashare/archive/monthlow_unused)。
 
 中国股市A股股票行情实时数据最简封装API接口,包含日线,分时分钟线,全部格式成DataFrame格式数据,可用来研究，量化分析，证券股票程序化自动化交易系统
 行情系统包括新浪腾讯双数据核心，自动故障切换，为量化研究者在数据获取方面极大地减轻工作量，更加专注于策略和模型的研究与实现。
