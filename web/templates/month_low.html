@@ -123,11 +123,13 @@
 
     /* 日志 */
     .log-panel {
-      flex:1 1 auto; min-height:0; display:flex; flex-direction:column; overflow:hidden;
+      flex:1 1 360px; height:auto; max-height:none;
+      min-height:240px; display:flex; flex-direction:column; overflow:hidden;
     }
     .log-box { background:rgba(4,10,18,.9); border:1px solid rgba(80,105,150,.16); border-radius:16px; padding:12px;
                font-family:"SF Mono","Fira Code",monospace; font-size:11px;
-               color:#C9CDD4; flex:1; min-height:0; overflow-y:auto;
+               color:#C9CDD4; flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+               scrollbar-gutter:stable;
                white-space:pre-wrap; word-break:break-all; }
     .log-box::-webkit-scrollbar { width:8px; }
     .log-box::-webkit-scrollbar-thumb { background:rgba(138,114,255,.35); border-radius:999px; }
@@ -225,6 +227,7 @@
       .workspace { padding:16px; }
       .layout { flex-direction:column; }
       .left-panel, .right-panel { width:auto; }
+      .log-panel { flex:0 0 280px; height:280px; max-height:50vh; }
       .stat-grid { grid-template-columns:1fr 1fr; }
     }
   </style>
@@ -356,6 +359,7 @@ let selectedCodes = new Set();  // 跨分页保持选中状态
 let availableDates = [];
 let currentSelectedDate = '';
 let monthLowLogES = null;
+let monthLowLogPinned = true;
 
 // ── 日期列表 ──
 async function loadDates() {
@@ -513,12 +517,36 @@ function renderStats(rows) {
 }
 
 // ── 扫描 ──
+function isLogNearBottom(panel) {
+  return panel.scrollHeight - panel.scrollTop - panel.clientHeight < 24;
+}
+
+function scrollLogToBottom(panel) {
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function appendLogLine(panel, text, className = '') {
+  const shouldFollow = monthLowLogPinned || isLogNearBottom(panel);
+  const el = document.createElement('div');
+  if (className) el.className = className;
+  el.textContent = text;
+  panel.appendChild(el);
+  if (shouldFollow) {
+    scrollLogToBottom(panel);
+    monthLowLogPinned = true;
+  }
+  return el;
+}
+
 function attachMonthLowLogStream({ reset = false } = {}) {
   const btn = document.getElementById('btn-run');
   const logSec = document.getElementById('log-section');
   const panel  = document.getElementById('log-panel');
   logSec.style.display = 'flex';
-  if (reset) panel.innerHTML = '';
+  if (reset) {
+    panel.innerHTML = '';
+    monthLowLogPinned = true;
+  }
 
   if (monthLowLogES) monthLowLogES.close();
   monthLowLogES = new EventSource('/api/month_low/log');
@@ -528,11 +556,7 @@ function attachMonthLowLogStream({ reset = false } = {}) {
     if (line === '__START__' || line === '__HEARTBEAT__') return;
     if (line.startsWith('__DONE__')) {
       const code = line.split(':')[1];
-      const el = document.createElement('div');
-      el.className = code === '0' ? 'log-done' : 'log-err';
-      el.textContent = code === '0' ? '✅ 扫描完成' : '❌ 扫描异常退出';
-      panel.appendChild(el);
-      panel.scrollTop = panel.scrollHeight;
+      appendLogLine(panel, code === '0' ? '✅ 扫描完成' : '❌ 扫描异常退出', code === '0' ? 'log-done' : 'log-err');
       monthLowLogES.close();
       monthLowLogES = null;
       btn.disabled = false;
@@ -540,10 +564,7 @@ function attachMonthLowLogStream({ reset = false } = {}) {
       loadDates();
       return;
     }
-    const el = document.createElement('div');
-    el.textContent = line;
-    panel.appendChild(el);
-    panel.scrollTop = panel.scrollHeight;
+    appendLogLine(panel, line);
   };
 
   monthLowLogES.onerror = () => {
@@ -561,7 +582,9 @@ async function runScan() {
   btn.disabled = true; btn.textContent = '⏳ 扫描中...';
   const logSec = document.getElementById('log-section');
   const panel  = document.getElementById('log-panel');
-  logSec.style.display = 'flex'; panel.innerHTML = '';
+  logSec.style.display = 'flex';
+  panel.innerHTML = '';
+  monthLowLogPinned = true;
 
   const data = await fetch('/api/month_low/run', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -574,6 +597,7 @@ async function runScan() {
       el.className = 'log-done';
       el.textContent = '已接入当前正在执行的扫描日志...';
       panel.appendChild(el);
+      scrollLogToBottom(panel);
       attachMonthLowLogStream({ reset: false });
       return;
     }
@@ -696,8 +720,14 @@ async function resumeRunningMonthLowScan() {
   btn.textContent = '⏳ 扫描中...';
   logSec.style.display = 'flex';
   panel.innerHTML = '<div>已恢复当前扫描日志...</div>';
+  monthLowLogPinned = true;
+  scrollLogToBottom(panel);
   attachMonthLowLogStream({ reset: false });
 }
+
+document.getElementById('log-panel').addEventListener('scroll', (e) => {
+  monthLowLogPinned = isLogNearBottom(e.currentTarget);
+});
 
 loadDates();
 resumeRunningMonthLowScan();

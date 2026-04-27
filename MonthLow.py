@@ -541,31 +541,34 @@ def get_stock_names_batch(codes: list[str]) -> dict[str, str]:
     返回：
       dict: {code: name} 字典
     """
-    code_str = ','.join(codes)
-    url = f'http://qt.gtimg.cn/q={code_str}'
-    
-    try:
-        text = requests.get(url, timeout=5).text
-        lines = text.split(';')
-        result = {}
-        
-        for line in lines:
-            if not line.strip():
-                continue
-            
-            data = line.split('~')
-            try:
-                head = line.split('=', 1)[0].strip()
-                qcode = head[2:] if head.startswith('v_') else None
-                
-                if qcode and len(data) > 1:
-                    result[qcode] = data[1]
-            except:
-                continue
-        
-        return result
-    except:
-        return {}
+    result = {}
+
+    for i in range(0, len(codes), 100):
+        batch = codes[i:i + 100]
+        code_str = ','.join(batch)
+        url = f'http://qt.gtimg.cn/q={code_str}'
+
+        try:
+            text = requests.get(url, timeout=5).text
+            lines = text.split(';')
+
+            for line in lines:
+                if not line.strip():
+                    continue
+
+                data = line.split('~')
+                try:
+                    head = line.split('=', 1)[0].strip()
+                    qcode = head[2:] if head.startswith('v_') else None
+
+                    if qcode and len(data) > 1:
+                        result[qcode] = data[1]
+                except Exception:
+                    continue
+        except Exception:
+            continue
+
+    return result
 
 
 def _get_time_period():
@@ -598,6 +601,7 @@ def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
     print(f"📋 共 {len(results)} 只股票进入第四阶段...")
 
     codes = [r['code'] for r in results]
+    name_map = get_stock_names_batch(codes)
 
     # ── 获取 T 日数据 ──
     t_day_map = {}  # {code: {high, low, close}}
@@ -611,7 +615,7 @@ def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
             if df is not None and not df.empty:
                 row = df.iloc[-1]
                 t_day_map[code] = {
-                    'name':  '',
+                    'name':  name_map.get(code, ''),
                     'high':  round(float(row['high']), 2),
                     'low':   round(float(row['low']),  2),
                     'close': round(float(row['close']), 2),
@@ -619,48 +623,32 @@ def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
 
     elif period == 'in':
         # 盘中：实时 API 批量获取
-        code_str = ','.join(codes)
-        try:
-            text = requests.get(f'http://qt.gtimg.cn/q={code_str}', timeout=10).text
-            for line in text.split(';'):
-                if not line.strip(): continue
-                data = line.split('~')
-                try:
-                    head = line.split('=', 1)[0].strip()
-                    qcode = head[2:] if head.startswith('v_') else None
-                    if qcode and len(data) > 34:
-                        t_day_map[qcode] = {
-                            'name':  data[1],
-                            'high':  float(data[33]) if data[33] else 0.0,  # 今日最高
-                            'low':   float(data[34]) if data[34] else 0.0,  # 今日最低
-                            'close': float(data[3])  if data[3]  else 0.0,  # 当前价
-                        }
-                except Exception:
-                    continue
-        except Exception as e:
-            print(f"⚠️  实时数据获取失败: {e}")
+        for i in range(0, len(codes), 100):
+            batch = codes[i:i + 100]
+            code_str = ','.join(batch)
+            try:
+                text = requests.get(f'http://qt.gtimg.cn/q={code_str}', timeout=10).text
+                for line in text.split(';'):
+                    if not line.strip(): continue
+                    data = line.split('~')
+                    try:
+                        head = line.split('=', 1)[0].strip()
+                        qcode = head[2:] if head.startswith('v_') else None
+                        if qcode and len(data) > 34:
+                            t_day_map[qcode] = {
+                                'name':  data[1],
+                                'high':  float(data[33]) if data[33] else 0.0,  # 今日最高
+                                'low':   float(data[34]) if data[34] else 0.0,  # 今日最低
+                                'close': float(data[3])  if data[3]  else 0.0,  # 当前价
+                            }
+                    except Exception:
+                        continue
+            except Exception as e:
+                print(f"⚠️  实时数据获取失败: {e}")
 
     else:
         # 收盘后：日线接口取今日收盘数据（df.iloc[-1] 就是今日）
         from Ashare import get_price as _ashare_get_price
-        # 先批量拿名称（腾讯接口）
-        code_str = ','.join(codes)
-        name_map = {}
-        try:
-            text = requests.get(f'http://qt.gtimg.cn/q={code_str}', timeout=10).text
-            for line in text.split(';'):
-                if not line.strip(): continue
-                data = line.split('~')
-                try:
-                    head = line.split('=', 1)[0].strip()
-                    qcode = head[2:] if head.startswith('v_') else None
-                    if qcode and len(data) > 1:
-                        name_map[qcode] = data[1]
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
         for code in codes:
             try:
                 df = _ashare_get_price(code, frequency='1d', count=2)
@@ -686,7 +674,7 @@ def filter_t_low_above_t_1_low(results: list[dict]) -> list[dict]:
         td = t_day_map.get(r['code'], {})
         t_low     = td.get('low', 0.0)
         t_close   = td.get('close', 0.0)
-        name      = td.get('name', '')
+        name      = td.get('name') or name_map.get(r['code'], '') or r.get('name', '')
         t_1_low   = r['t_1_low']
 
         if t_low <= 0 or t_1_low is None or t_1_low <= 0:
@@ -789,10 +777,17 @@ def pick_month_low_stocks():
     results = []
     for c in candidate_codes:
         code_with_prefix = ('sh' if c.startswith('6') else 'sz') + c
-        # 读缓存取 T-1 日最低价
+        # 第三阶段 SQL 使用 rn=2（倒数第二条日线）作为 T-1。
+        # 这里必须取同一条记录，否则第四阶段会把 T 日最低价和同日最低价比较，
+        # 盘前/盘中缓存包含最新日线时会导致全部被排除。
         df_hist = get_cached_daily_data(c)
-        t_1_low   = round(float(df_hist['low'].iloc[-1]), 2)   if df_hist is not None and not df_hist.empty else None
-        t_1_close = round(float(df_hist['close'].iloc[-1]), 2) if df_hist is not None and not df_hist.empty else None
+        if df_hist is not None and len(df_hist) >= 2:
+            t_1_row = df_hist.iloc[-2]
+            t_1_low   = round(float(t_1_row['low']), 2)
+            t_1_close = round(float(t_1_row['close']), 2)
+        else:
+            t_1_low = None
+            t_1_close = None
         results.append({
             'code':          code_with_prefix,
             'name':          '',
